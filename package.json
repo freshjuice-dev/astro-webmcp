@@ -26,10 +26,10 @@
     "seo",
     "optimization"
   ],
-  "homepage": "https://github.com/fabriciotelles/astro-webmcp",
+  "homepage": "https://github.com/fabricioctelles/astro-webmcp",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fabriciotelles/astro-webmcp.git"
+    "url": "https://github.com/fabricioctelles/astro-webmcp.git"
   },
   "license": "MIT",
   "peerDependencies": {
