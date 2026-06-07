@@ -1,37 +1,37 @@
 # astro-webmcp
 
-Integração Astro que expõe automaticamente o conteúdo do seu site via [WebMCP](https://developer.chrome.com/docs/ai/webmcp) — permitindo que agentes de IA descubram, busquem e naveguem pelo conteúdo diretamente no browser.
+Astro integration that automatically exposes your site's content via [WebMCP](https://developer.chrome.com/docs/ai/webmcp) — allowing AI agents to discover, search, and navigate your content directly in the browser.
 
-## O que é WebMCP?
+## What is WebMCP?
 
-WebMCP é um padrão web proposto pelo Chrome que permite sites declararem "tools" estruturadas para agentes de IA. Em vez de um agente interpretar visualmente cada elemento da página, o site declara explicitamente o que pode ser feito — buscar artigos, navegar para seções, preencher formulários.
+WebMCP is a proposed web standard by Chrome that lets websites declare structured "tools" for AI agents. Instead of an agent visually interpreting each page element, the site explicitly declares what can be done — search articles, navigate to sections, get page metadata.
 
 - **Spec:** https://webmachinelearning.github.io/webmcp/
 - **Chrome docs:** https://developer.chrome.com/docs/ai/webmcp
 - **GitHub:** https://github.com/webmachinelearning/webmcp
 
-## O que este plugin faz
+## What this plugin does
 
-1. **No build**: lê suas Content Collections do Astro e gera um manifesto JSON com metadados (título, slug, descrição, tags)
-2. **No browser**: injeta um script que registra tools WebMCP via `document.modelContext.registerTool()`
-3. **Agentes** visitando qualquer página do site descobrem automaticamente tools para buscar e navegar pelo conteúdo
+1. **At build time**: reads your Astro pages and generates a JSON manifest with metadata (title, slug, description)
+2. **In the browser**: injects a lightweight script (~1KB) that registers WebMCP tools via `document.modelContext.registerTool()`
+3. **Agents** visiting any page automatically discover tools to search and navigate your content
 
-### Tools expostas
+### Registered tools
 
-| Tool | Descrição |
-|------|-----------|
-| `search_content` | Busca artigos/páginas por palavra-chave |
-| `list_sections` | Lista collections/seções disponíveis |
-| `go_to` | Navega para uma página específica pelo slug |
-| `get_page_info` | Retorna metadados da página atual (título, descrição, headings) |
+| Tool | Description |
+|------|-------------|
+| `search_content` | Search articles and pages by keyword |
+| `list_sections` | List available content sections with item counts |
+| `go_to` | Navigate to a specific page by slug |
+| `get_page_info` | Get current page metadata (title, description, headings) |
 
-## Instalação
+## Installation
 
 ```bash
 npm install astro-webmcp
 ```
 
-## Uso básico
+## Basic usage
 
 ```js
 // astro.config.mjs
@@ -43,34 +43,90 @@ export default defineConfig({
 });
 ```
 
-Com opções:
+With options:
 
 ```js
 webmcp({
-  collections: ['blog', 'docs'], // filtrar collections (default: todas)
+  collections: ['blog', 'docs'], // filter collections (default: all)
 })
 ```
 
-## Requisitos
+## Requirements
 
 - Astro 6+
-- Chrome 149+ com flag `chrome://flags/#enable-webmcp-testing` (ou origin trial)
-- Documento origin-isolated (padrão do Astro)
+- Chrome 149+ with `chrome://flags/#enable-webmcp-testing` enabled (or origin trial)
+- Origin-isolated document (Astro default)
 
-## Testar
+## Testing
 
-Instale a extensão [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd) para simular um agente chamando seus tools.
+Install the [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd) extension to simulate an agent calling your tools.
 
-## Documentação
+Verify in DevTools console:
 
-- [Arquitetura](docs/architecture.md)
-- [Guia de uso](docs/usage.md)
-- [Publicação no npm](docs/publishing.md)
+```js
+const tools = await document.modelContext.getTools();
+console.log(tools);
+```
+
+## How it works
+
+The integration uses two Astro hooks:
+
+- **`astro:config:setup`** — injects the client-side script into every page via `injectScript`
+- **`astro:build:done`** — generates `/_webmcp/manifest.json` by extracting titles and descriptions from built HTML files
+
+The client script performs feature detection (`'modelContext' in document`) and exits immediately on unsupported browsers — zero performance impact.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Usage guide](docs/usage.md)
+- [Publishing to npm](docs/publishing.md)
+
+## Security
+
+### What is exposed
+
+The plugin only exposes information that is **already publicly accessible** on your site:
+
+| Data | Source | Equivalent to |
+|------|--------|---------------|
+| Page URLs | Built HTML files | `sitemap.xml` |
+| Page titles | `<title>` tag | View source / search engines |
+| Descriptions | `<meta name="description">` | View source / search engines |
+| Headings (h1-h3) | DOM elements | Visible on page |
+
+**The manifest (`/_webmcp/manifest.json`) contains no more information than your `sitemap.xml` already provides to every crawler.**
+
+### What is NOT exposed
+
+- ❌ No server-side data, APIs, or endpoints
+- ❌ No authentication tokens or credentials
+- ❌ No admin routes or private pages
+- ❌ No user data (the plugin is fully static/client-side)
+- ❌ No environment variables or build secrets
+
+### Tool security
+
+| Tool | Action | Risk |
+|------|--------|------|
+| `search_content` | Filters pre-loaded JSON client-side | Read-only, no network calls |
+| `list_sections` | Returns static collection list | Read-only |
+| `go_to` | Sets `window.location.href` to a known URL | Navigation only, same as clicking a link |
+| `get_page_info` | Reads DOM title, meta, headings | Same as view-source |
+
+### Design principles
+
+- **No arbitrary code execution** — tools only read static data or navigate
+- **No `innerHTML`** — all output is `JSON.stringify`, no XSS vector
+- **No external requests** — the manifest is fetched from same-origin only
+- **Progressive enhancement** — on unsupported browsers, the script exits immediately with zero side effects
+- **Origin-isolated** — WebMCP requires origin isolation; cross-origin iframes cannot access tools unless explicitly allowed
 
 ## Status
 
-🚧 Em desenvolvimento — WebMCP ainda é um padrão em evolução (developer trial no Chrome).
+🚧 Early development — WebMCP is an evolving standard (developer trial in Chrome 149+).
 
-## Licença
+## License
 
 MIT

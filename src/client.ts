@@ -20,9 +20,7 @@ interface Manifest {
 }
 
 (async () => {
-  if (!('modelContext' in document)) return;
-
-  const mc = (document as any).modelContext;
+  const mc = (document as any).modelContext ?? (navigator as any).modelContext;
   if (!mc?.registerTool) return;
 
   let manifest: Manifest;

@@ -1,8 +1,9 @@
 {
   "name": "astro-webmcp",
   "version": "0.1.0",
-  "description": "Integração Astro que expõe conteúdo do site via WebMCP para agentes de IA",
+  "description": "Astro integration that exposes your site content via WebMCP for AI agents",
   "type": "module",
+  "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js"
   },
@@ -15,14 +16,21 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "astro",
     "astro-integration",
+    "withastro",
     "webmcp",
     "ai",
     "agents",
     "mcp",
-    "model-context-protocol"
+    "model-context-protocol",
+    "seo",
+    "optimization"
   ],
+  "homepage": "https://github.com/fabriciotelles/astro-webmcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fabriciotelles/astro-webmcp.git"
+  },
   "license": "MIT",
   "peerDependencies": {
     "astro": "^6.0.0"

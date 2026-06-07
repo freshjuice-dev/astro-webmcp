@@ -39,6 +39,23 @@ export default function astroWebMCP(options: WebMCPOptions = {}): AstroIntegrati
         logger.info('WebMCP tools will be registered on all pages');
       },
 
+      'astro:server:setup': ({ server, logger }) => {
+        // Serve um manifesto dinâmico no dev (lista páginas conhecidas)
+        server.middlewares.use('/_webmcp/manifest.json', (_req, res) => {
+          const manifest: WebMCPManifest = {
+            generatedAt: new Date().toISOString(),
+            site: siteUrl,
+            collections: [],
+            entries: [
+              { slug: '/', url: '/', title: 'Home', description: 'Homepage' },
+            ],
+          };
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(manifest));
+        });
+        logger.info('WebMCP dev manifest available at /_webmcp/manifest.json');
+      },
+
       'astro:build:done': async ({ dir, pages, logger }) => {
         const collectionsFilter = options.collections;
 
@@ -116,5 +133,5 @@ function extractMeta(dir: URL, pathname: string): { title: string; description: 
 
 /** Client inline mínimo como fallback */
 function getInlineClient(): string {
-  return `(async()=>{if(!("modelContext"in document))return;const mc=document.modelContext;if(!mc?.registerTool)return;let m;try{const r=await fetch("/_webmcp/manifest.json");if(!r.ok)return;m=await r.json()}catch{return}mc.registerTool({name:"search_content",description:"Search articles and pages on this site by keyword.",inputSchema:{type:"object",properties:{query:{type:"string",description:"Search term"},limit:{type:"number",description:"Max results (default: 5)"}},required:["query"]},execute:async({query:q,limit:l=5})=>{const t=q.toLowerCase();return JSON.stringify(m.entries.filter(e=>e.title.toLowerCase().includes(t)||(e.description||"").toLowerCase().includes(t)).slice(0,l))}});mc.registerTool({name:"list_sections",description:"List content sections available on this site.",inputSchema:{type:"object",properties:{}},execute:async()=>JSON.stringify(m.collections)});mc.registerTool({name:"go_to",description:"Navigate to a page by slug.",inputSchema:{type:"object",properties:{slug:{type:"string"}},required:["slug"]},execute:async({slug:s})=>{const e=m.entries.find(x=>x.slug===s||x.url===s||x.url==="/"+s+"/");if(e){window.location.href=e.url;return null}return"Not found"}});mc.registerTool({name:"get_page_info",description:"Get current page metadata.",inputSchema:{type:"object",properties:{}},execute:async()=>JSON.stringify({title:document.title,description:document.querySelector('meta[name="description"]')?.getAttribute("content")||"",url:location.pathname})})})();`;
+  return `(async()=>{const mc=document.modelContext||navigator.modelContext;if(!mc?.registerTool)return;let m;try{const r=await fetch("/_webmcp/manifest.json");if(!r.ok)return;m=await r.json()}catch{return}mc.registerTool({name:"search_content",description:"Search articles and pages on this site by keyword.",inputSchema:{type:"object",properties:{query:{type:"string",description:"Search term"},limit:{type:"number",description:"Max results (default: 5)"}},required:["query"]},execute:async({query:q,limit:l=5})=>{const t=q.toLowerCase();return JSON.stringify(m.entries.filter(e=>e.title.toLowerCase().includes(t)||(e.description||"").toLowerCase().includes(t)).slice(0,l))}});mc.registerTool({name:"list_sections",description:"List content sections available on this site.",inputSchema:{type:"object",properties:{}},execute:async()=>JSON.stringify(m.collections)});mc.registerTool({name:"go_to",description:"Navigate to a page by slug.",inputSchema:{type:"object",properties:{slug:{type:"string"}},required:["slug"]},execute:async({slug:s})=>{const e=m.entries.find(x=>x.slug===s||x.url===s||x.url==="/"+s+"/");if(e){window.location.href=e.url;return null}return"Not found"}});mc.registerTool({name:"get_page_info",description:"Get current page metadata.",inputSchema:{type:"object",properties:{}},execute:async()=>JSON.stringify({title:document.title,description:document.querySelector('meta[name="description"]')?.getAttribute("content")||"",url:location.pathname})})})();`;
 }
