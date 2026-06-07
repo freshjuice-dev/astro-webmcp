@@ -1,5 +1,14 @@
 # astro-webmcp
 
+[![npm version](https://img.shields.io/npm/v/astro-webmcp?color=blue)](https://www.npmjs.com/package/astro-webmcp)
+[![npm downloads](https://img.shields.io/npm/dm/astro-webmcp)](https://www.npmjs.com/package/astro-webmcp)
+[![Astro](https://img.shields.io/badge/Astro-6+-ff5d01?logo=astro&logoColor=white)](https://astro.build)
+[![WebMCP](https://img.shields.io/badge/WebMCP-Chrome_149+-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/ai/webmcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Built--in_types-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
+> 🤖 Make your Astro site AI-agent ready in one line of code.
+
 Astro integration that automatically exposes your site's content via [WebMCP](https://developer.chrome.com/docs/ai/webmcp) — allowing AI agents to discover, search, and navigate your content directly in the browser.
 
 ## What is WebMCP?
