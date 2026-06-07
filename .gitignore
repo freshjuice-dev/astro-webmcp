@@ -1,3 +1,7 @@
 node_modules/
 dist/
 .astro/
+
+# Docs internos
+docs/astro-directory.md
+docs/publishing.md
