@@ -10,21 +10,6 @@ WebMCP is a proposed web standard by Chrome that lets websites declare structure
 - **Chrome docs:** https://developer.chrome.com/docs/ai/webmcp
 - **GitHub:** https://github.com/webmachinelearning/webmcp
 
-## What this plugin does
-
-1. **At build time**: reads your Astro pages and generates a JSON manifest with metadata (title, slug, description)
-2. **In the browser**: injects a lightweight script (~1KB) that registers WebMCP tools via `document.modelContext.registerTool()`
-3. **Agents** visiting any page automatically discover tools to search and navigate your content
-
-### Registered tools
-
-| Tool | Description |
-|------|-------------|
-| `search_content` | Search articles and pages by keyword |
-| `list_sections` | List available content sections with item counts |
-| `go_to` | Navigate to a specific page by slug |
-| `get_page_info` | Get current page metadata (title, description, headings) |
-
 ## Installation
 
 ```bash
@@ -43,45 +28,221 @@ export default defineConfig({
 });
 ```
 
-With options:
+That's it. All your site content is now exposed via WebMCP automatically.
+
+## Configuration options
 
 ```js
 webmcp({
-  collections: ['blog', 'docs'], // filter collections (default: all)
+  collections: ['blog', 'docs'], // filter which collections to expose (default: all)
 })
 ```
 
-## Requirements
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `collections` | `string[]` | `undefined` (all) | List of collections to include in the manifest |
 
-- Astro 6+
-- Chrome 149+ with `chrome://flags/#enable-webmcp-testing` enabled (or origin trial)
-- Origin-isolated document (Astro default)
+## Registered tools
+
+| Tool | Description |
+|------|-------------|
+| `search_content` | Search articles and pages by keyword |
+| `list_sections` | List available content sections with item counts |
+| `go_to` | Navigate to a specific page by slug |
+| `get_page_info` | Get current page metadata (title, description, headings) |
+
+### Tool schemas
+
+#### `search_content`
+
+```json
+{
+  "name": "search_content",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": { "type": "string", "description": "Search term" },
+      "collection": { "type": "string", "description": "Filter by collection (optional)" },
+      "limit": { "type": "number", "description": "Max results (default: 5)" }
+    },
+    "required": ["query"]
+  }
+}
+```
+
+#### `list_sections`
+
+```json
+{
+  "name": "list_sections",
+  "inputSchema": { "type": "object", "properties": {} }
+}
+```
+
+#### `go_to`
+
+```json
+{
+  "name": "go_to",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "slug": { "type": "string", "description": "Page slug or path" }
+    },
+    "required": ["slug"]
+  }
+}
+```
+
+#### `get_page_info`
+
+```json
+{
+  "name": "get_page_info",
+  "inputSchema": { "type": "object", "properties": {} }
+}
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      BUILD TIME                          │
+│                                                         │
+│  Astro pages ────→ Hook astro:build:done                │
+│                         │                               │
+│                         ▼                               │
+│                   /_webmcp/manifest.json                 │
+│                   (titles, slugs, descriptions)          │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                    RUNTIME (Browser)                     │
+│                                                         │
+│  Injected script (injectScript)                         │
+│       │                                                 │
+│       ├─ fetch('/_webmcp/manifest.json')                │
+│       │                                                 │
+│       └─ navigator.modelContext.registerTool()          │
+│            ├── search_content                           │
+│            ├── list_sections                            │
+│            ├── go_to                                    │
+│            └── get_page_info                            │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                      AI AGENT                           │
+│                                                         │
+│  Chrome 149+ discovers tools via WebMCP protocol        │
+│  Agent can search, list, and navigate site content      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Components
+
+**Integration (`src/index.ts`)** — implements `AstroIntegration` with three hooks:
+
+- `astro:config:setup` — injects the client-side script into every page via `injectScript`
+- `astro:server:setup` — serves a dynamic manifest during development
+- `astro:build:done` — generates `/_webmcp/manifest.json` by extracting titles and descriptions from built HTML
+
+**Client script (`src/client.ts`)** — runs in the browser on every page:
+
+1. Feature detection: `document.modelContext ?? navigator.modelContext`
+2. Fetches the manifest from `/_webmcp/manifest.json`
+3. Registers 4 tools with JSON Schema input definitions
+
+**Manifest (`/_webmcp/manifest.json`)** — static JSON generated at build time:
+
+```json
+{
+  "generatedAt": "2026-06-07T00:45:30.260Z",
+  "site": "https://example.com",
+  "collections": [
+    { "name": "blog", "count": 42 },
+    { "name": "docs", "count": 15 }
+  ],
+  "entries": [
+    {
+      "slug": "blog/my-article",
+      "url": "/blog/my-article/",
+      "title": "My Article",
+      "description": "Article summary",
+      "collection": "blog"
+    }
+  ]
+}
+```
+
+### Design decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Static JSON manifest (not virtual module) | Works for both SSG and SSR, CDN-cacheable, no complex Vite plugin needed |
+| Client-side search | No server endpoint needed for small/medium sites (<1000 pages) |
+| Imperative API (not Declarative) | Search and navigation aren't forms — they need JS logic |
+| Feature detection with fallback | Chrome 149 uses `navigator.modelContext`, 150+ uses `document.modelContext` |
 
 ## Testing
 
-Install the [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd) extension to simulate an agent calling your tools.
+### 1. Enable WebMCP in Chrome
 
-Verify in DevTools console:
+Navigate to `chrome://flags/#enable-webmcp-testing` → **Enabled** → Relaunch.
+
+### 2. Install the test extension
+
+[Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd)
+
+### 3. Verify tools in DevTools Console
 
 ```js
+// Chrome 149
+const tools = await navigator.modelContext.getTools();
+console.table(tools.map(t => ({ name: t.name, description: t.description })));
+
+// Chrome 150+
 const tools = await document.modelContext.getTools();
-console.log(tools);
+console.table(tools.map(t => ({ name: t.name, description: t.description })));
 ```
 
-## How it works
+### 4. Execute a tool manually
 
-The integration uses two Astro hooks:
+```js
+const tools = await navigator.modelContext.getTools();
+const search = tools.find(t => t.name === 'search_content');
+const result = await navigator.modelContext.executeTool(search, '{"query": "astro"}');
+console.log(JSON.parse(result));
+```
 
-- **`astro:config:setup`** — injects the client-side script into every page via `injectScript`
-- **`astro:build:done`** — generates `/_webmcp/manifest.json` by extracting titles and descriptions from built HTML files
+## Combining with Declarative API
 
-The client script performs feature detection (`'modelContext' in document`) and exits immediately on unsupported browsers — zero performance impact.
+This plugin uses the Imperative API for search and navigation. For existing forms on your site, you can add the Declarative API manually — both coexist:
 
-## Documentation
+```html
+<form toolname="send_message"
+      tooldescription="Send a contact message."
+      toolautosubmit
+      action="/api/contact">
+  <label for="email">Email</label>
+  <input type="email" name="email" required>
+  <label for="message">Message</label>
+  <textarea name="message" required></textarea>
+  <button type="submit">Send</button>
+</form>
+```
 
-- [Architecture](docs/architecture.md)
-- [Usage guide](docs/usage.md)
-- [Publishing to npm](docs/publishing.md)
+The agent will see **both** the integration tools + declarative form tools.
+
+## Compatibility
+
+| Browser | Support |
+|---------|---------|
+| Chrome 149+ | ✅ (flag or origin trial) |
+| Other browsers | ❌ (script exits immediately, zero impact) |
+
+The plugin is a **progressive enhancement** — sites continue working normally on unsupported browsers.
 
 ## Security
 
@@ -122,6 +283,30 @@ The plugin only exposes information that is **already publicly accessible** on y
 - **No external requests** — the manifest is fetched from same-origin only
 - **Progressive enhancement** — on unsupported browsers, the script exits immediately with zero side effects
 - **Origin-isolated** — WebMCP requires origin isolation; cross-origin iframes cannot access tools unless explicitly allowed
+
+## Troubleshooting
+
+### Tools don't appear
+
+1. Check that `chrome://flags/#enable-webmcp-testing` is enabled
+2. Verify in the Network tab that `/_webmcp/manifest.json` returns 200
+3. In Console, check `navigator.modelContext` (Chrome 149) or `document.modelContext` (150+)
+
+### Empty manifest
+
+- Confirm the build completed without errors
+- The manifest is generated from built HTML pages — ensure `astro build` succeeds
+
+### Search returns no results
+
+- Search is case-insensitive across `title`, `description`, and `tags` fields
+- If your pages have no `<meta name="description">`, search only matches on `title`
+
+## Requirements
+
+- Astro 6+
+- Chrome 149+ with `chrome://flags/#enable-webmcp-testing` enabled (or origin trial)
+- Origin-isolated document (Astro default)
 
 ## Status
 
