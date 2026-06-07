@@ -315,3 +315,7 @@ The plugin only exposes information that is **already publicly accessible** on y
 ## License
 
 MIT
+
+## Author
+
+Contact the author: https://ft.ia.br
