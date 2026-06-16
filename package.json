@@ -1,6 +1,6 @@
 {
   "name": "astro-webmcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Astro integration that exposes your site content via WebMCP for AI agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,9 @@
     "mcp",
     "model-context-protocol",
     "seo",
-    "optimization"
+    "optimization",
+    "security",
+    "prompt-injection"
   ],
   "homepage": "https://github.com/fabricioctelles/astro-webmcp",
   "repository": {

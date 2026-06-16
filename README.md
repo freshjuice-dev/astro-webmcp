@@ -44,12 +44,20 @@ That's it. All your site content is now exposed via WebMCP automatically.
 ```js
 webmcp({
   collections: ['blog', 'docs'], // filter which collections to expose (default: all)
+  security: {
+    exposedTo: [],          // origins allowed cross-origin access (default: none)
+    maxOutputLength: 1500,  // max chars per tool output (default: 1500)
+    sanitizeOutputs: true,  // strip prompt injection patterns (default: true)
+  },
 })
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `collections` | `string[]` | `undefined` (all) | List of collections to include in the manifest |
+| `security.exposedTo` | `string[]` | `[]` | Origins allowed to access tools cross-origin |
+| `security.maxOutputLength` | `number` | `1500` | Character limit per tool output |
+| `security.sanitizeOutputs` | `boolean` | `true` | Strip patterns that resemble prompt injection |
 
 ## Registered tools
 
@@ -255,6 +263,31 @@ The plugin is a **progressive enhancement** — sites continue working normally 
 
 ## Security
 
+This plugin implements security measures aligned with the [Chrome Agent Security Guidelines](https://developer.chrome.com/docs/agents/security) and [WebMCP Tool Security](https://developer.chrome.com/docs/ai/webmcp/secure-tools) recommendations.
+
+### Security configuration
+
+```js
+webmcp({
+  security: {
+    // Origins allowed to access tools cross-origin (default: none — same-origin only)
+    exposedTo: ['https://trusted-partner.com'],
+
+    // Max characters per tool output (default: 1500, per Chrome recommendation)
+    maxOutputLength: 1500,
+
+    // Sanitize outputs against indirect prompt injection (default: true)
+    sanitizeOutputs: true,
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `exposedTo` | `string[]` | `[]` | Origins allowed to access tools cross-origin |
+| `maxOutputLength` | `number` | `1500` | Character limit per tool output |
+| `sanitizeOutputs` | `boolean` | `true` | Strip patterns that resemble prompt injection |
+
 ### What is exposed
 
 The plugin only exposes information that is **already publicly accessible** on your site:
@@ -276,14 +309,54 @@ The plugin only exposes information that is **already publicly accessible** on y
 - ❌ No user data (the plugin is fully static/client-side)
 - ❌ No environment variables or build secrets
 
-### Tool security
+### Tool annotations
 
-| Tool | Action | Risk |
-|------|--------|------|
-| `search_content` | Filters pre-loaded JSON client-side | Read-only, no network calls |
-| `list_sections` | Returns static collection list | Read-only |
-| `go_to` | Sets `window.location.href` to a known URL | Navigation only, same as clicking a link |
-| `get_page_info` | Reads DOM title, meta, headings | Same as view-source |
+All built-in tools include [security annotations](https://developer.chrome.com/docs/ai/webmcp/secure-tools) to help agents make safe decisions:
+
+| Tool | `readOnlyHint` | `untrustedContentHint` | Rationale |
+|------|:-:|:-:|-----------|
+| `search_content` | ✅ | ✅ | Read-only; results may contain UGC in titles/descriptions |
+| `list_sections` | ✅ | — | Read-only; static collection names controlled by site owner |
+| `go_to` | — | — | Mutates state (navigation); agent should confirm with user |
+| `get_page_info` | ✅ | ✅ | Read-only; DOM content may include user-generated text |
+
+### Defenses against prompt injection
+
+The plugin implements multiple layers of defense per Chrome's [defense-in-depth](https://security.googleblog.com/2025/12/architecting-security-for-agentic.html) strategy:
+
+#### 1. Deterministic guardrails
+
+- **Output character limits** — All tool outputs are truncated to `maxOutputLength` (default 1.5K chars). This prevents context window overflow and limits the surface area for sophisticated prompt injection attacks.
+- **Cross-origin isolation** — Tools are only accessible same-origin by default. Use `exposedTo` to explicitly allowlist trusted origins.
+- **Result cap** — `search_content` enforces a maximum of 20 results regardless of the `limit` parameter.
+
+#### 2. Output sanitization
+
+When `sanitizeOutputs: true` (default), the plugin strips common prompt injection patterns from tool outputs:
+
+- `"ignore previous instructions"` patterns
+- Role-play injection (`"you are now..."`)
+- Fake system/assistant/user message delimiters
+- XML-style instruction tags (`<system>`, `<instruction>`, etc.)
+
+This acts as a lightweight classifier for indirect prompt injection embedded in page content (e.g., malicious text in blog comments that gets indexed in titles/descriptions).
+
+#### 3. Annotations as signals
+
+The `readOnlyHint` and `untrustedContentHint` annotations signal to the agent:
+- **Which tools are safe to call without user confirmation** (read-only tools)
+- **Which outputs need heightened scrutiny** (untrusted content that could contain injected instructions)
+
+### Character budgets
+
+Following [Chrome's recommendations](https://developer.chrome.com/docs/ai/webmcp/secure-tools):
+
+| Element | Limit | Status |
+|---------|-------|--------|
+| Tool name | 30 chars | ✅ All built-in tools comply |
+| Tool description | 500 chars | ✅ All built-in tools comply |
+| Parameter description | 150 chars | ✅ All parameters comply |
+| Tool output | 1,500 chars | ✅ Enforced via `maxOutputLength` |
 
 ### Design principles
 
@@ -292,6 +365,18 @@ The plugin only exposes information that is **already publicly accessible** on y
 - **No external requests** — the manifest is fetched from same-origin only
 - **Progressive enhancement** — on unsupported browsers, the script exits immediately with zero side effects
 - **Origin-isolated** — WebMCP requires origin isolation; cross-origin iframes cannot access tools unless explicitly allowed
+- **Annotations-first** — all tools declare their security posture via `readOnlyHint` and `untrustedContentHint`
+- **Defense-in-depth** — multiple independent layers (limits, sanitization, annotations, origin control)
+
+### For agent developers consuming this plugin
+
+If you are building an agent that consumes tools registered by `astro-webmcp`, follow these additional recommendations from [Chrome Agent Security](https://developer.chrome.com/docs/agents/security):
+
+1. **Respect `untrustedContentHint`** — Apply [spotlighting](https://arxiv.org/abs/2403.14720) (delimiting or Base64-encoding) to outputs from tools marked with this annotation.
+2. **Set token limits** — Implement agent-level token limits on all inbound tool responses.
+3. **Verify intent alignment** — Use a critic/validator to ensure tool calls align with the user's original request.
+4. **Confirm state-changing actions** — Tools without `readOnlyHint: true` (like `go_to`) should trigger user confirmation.
+5. **Restrict origins** — Only interact with origins relevant to the user's task.
 
 ## Troubleshooting
 
