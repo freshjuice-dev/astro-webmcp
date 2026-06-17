@@ -9,6 +9,8 @@
 
 Built and maintained by [FreshJuice](https://freshjuice.dev) — a developer studio shipping lean tools since 2019.
 
+> **Based on** [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles) — the original Astro WebMCP integration. Forked with gratitude.
+
 ---
 
 ## What is WebMCP?
@@ -168,12 +170,11 @@ This integration follows [Chrome Agent Security Guidelines](https://developer.ch
 
 ## Why FreshJuice?
 
-This is a fork of the original `astro-webmcp` by fabricioctelles, maintained by [FreshJuice](https://freshjuice.dev) with:
+This is a fork of the original [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles), maintained by [FreshJuice](https://freshjuice.dev) with:
 
 - **Fixed script injection** — uses `head-inline` stage for reliable delivery on Astro v6
 - **Custom tools API** — expose your own domain-specific functionality
-- **English docs & comments** — no more Portuguese-to-English translation guesswork
-- **Active maintenance** — we dogfood this on [freshjuice.dev](https://freshjuice.dev) and [consenttheater.org](https://consenttheater.org)
+- **English docs & comments** — fully in English throughout
 
 ---
 

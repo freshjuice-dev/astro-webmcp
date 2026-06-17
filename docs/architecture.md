@@ -4,18 +4,18 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                     BUILD TIME                           │
+│                     BUILD TIME                          │
 │                                                         │
 │  Content Collections ──→ Hook astro:build:done          │
 │  (blog, docs, etc.)      │                              │
-│                           ▼                              │
-│                    Manifest JSON                         │
-│                    /_webmcp/manifest.json                │
+│                           ▼                             │
+│                    Manifest JSON                        │
+│                    /_webmcp/manifest.json               │
 └─────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────┐
-│                     RUNTIME (Browser)                    │
+│                     RUNTIME (Browser)                   │
 │                                                         │
 │  Injected script (head-inline)                          │
 │       │                                                 │
@@ -24,17 +24,17 @@
 │       └─ navigator.modelContext.registerTool()          │
 │            ├── search_content                           │
 │            ├── list_sections                            │
-│            ├── go_to                                     │
+│            ├── go_to                                    │
 │            ├── get_page_info                            │
 │            └── custom tools (user-defined)              │
 └─────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────┐
-│                     AI AGENT                             │
+│                     AI AGENT                            │
 │                                                         │
-│  Chrome (149+) discovers tools via WebMCP protocol       │
-│  Agent can search, list, navigate, and call custom tools │
+│ Chrome (149+) discovers tools via WebMCP protocol       │
+│ Agent can search, list, navigate, and call custom tools │
 └─────────────────────────────────────────────────────────┘
 ```
 
