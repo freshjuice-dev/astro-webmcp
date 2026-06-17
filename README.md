@@ -67,6 +67,16 @@ webmcp({
     },
   ],
 
+  // Auto-register annotated <form> elements as WebMCP tools
+  formScanning: true,
+
+  // Search backend for search_content (default: 'manifest')
+  search: {
+    backend: 'pagefind',       // 'manifest' | 'pagefind' | 'orama'
+    oramaIndexUrl: '/search-index.json',  // required for 'orama'
+    pagefindBundlePath: '/pagefind/',     // default for 'pagefind'
+  },
+
   // Security options
   security: {
     exposedTo: [],          // origins allowed cross-origin access (default: none)
@@ -80,6 +90,10 @@ webmcp({
 |--------|------|---------|-------------|
 | `collections` | `string[]` | `undefined` (all) | List of collections to include in the manifest |
 | `customTools` | `CustomTool[]` | `[]` | Domain-specific tools to register alongside built-in ones |
+| `formScanning` | `boolean` | `false` | Auto-register `<form name="..." description="...">` elements as tools |
+| `search.backend` | `'manifest' \| 'pagefind' \| 'orama'` | `'manifest'` | Search backend for `search_content` |
+| `search.oramaIndexUrl` | `string` | — | URL of pre-built Orama index (required for `'orama'`) |
+| `search.pagefindBundlePath` | `string` | `'/pagefind/'` | Pagefind bundle path |
 | `security.exposedTo` | `string[]` | `[]` | Origins allowed to access tools cross-origin |
 | `security.maxOutputLength` | `number` | `1500` | Character limit per tool output |
 | `security.sanitizeOutputs` | `boolean` | `true` | Strip patterns that resemble prompt injection |
@@ -94,16 +108,40 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 - `executeBody` — function body (runs in browser). Receives `params` and `safeOutput`. Must return data or a Promise.
 - `annotations` — optional security hints (`readOnlyHint`, `untrustedContentHint`)
 
+### Search Backends
+
+`search_content` supports three backends, with automatic fallback to manifest search:
+
+| Backend | Description | Requires |
+|---------|-------------|----------|
+| `manifest` (default) | Substring search on the generated manifest | Nothing — always works |
+| `pagefind` | Full-text search via Pagefind | `astro-pagefind` or `pagefind` on the page |
+| `orama` | Full-text search via Orama | `@freshjuice/astro-search-plugin` or similar, with `oramaIndexUrl` |
+
+### Declarative Form Scanning
+
+When `formScanning: true`, any `<form>` element with `name` and `description` attributes is auto-registered as a WebMCP tool:
+
+```html
+<form name="search_products" description="Search product catalog by keyword">
+  <input name="query" type="text" required>
+  <button type="submit">Search</button>
+</form>
+```
+
+The integration builds the input schema from form fields and submits the form when the agent calls the tool. This implements the spec's declarative API — no JS required.
+
 ---
 
 ## Registered Tools
 
 | Tool | Description |
 |------|-------------|
-| `search_content` | Search articles and pages by keyword |
+| `search_content` | Search articles and pages by keyword (supports manifest, Pagefind, or Orama backends) |
 | `list_sections` | List available content sections with item counts |
-| `go_to` | Navigate to a specific page by slug |
-| `get_page_info` | Get current page metadata (title, description, headings) |
+| `go_to` | Navigate to a specific page by slug (prompts user consent via `requestUserInteraction`) |
+| `get_page_info` | Get current page metadata (title, description, headings, language, word count, canonical URL) |
+| *declarative forms* | Any `<form name="..." description="...">` when `formScanning: true` |
 | *your custom tools* | Whatever you define via `customTools` |
 
 ---
@@ -111,31 +149,34 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      BUILD TIME                         │
-│                                                         │
-│  Astro pages ────→ Hook astro:build:done                │
-│                         │                               │
-│                         ▼                               │
-│                   /_webmcp/manifest.json                │
-│                   (titles, slugs, descriptions)         │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                      BUILD TIME                          │
+│                                                          │
+│  Astro pages ────→ Hook astro:build:done                 │
+│                         │                                │
+│                         ▼                                │
+│                   /_webmcp/manifest.json                 │
+│                   (titles, slugs, descriptions,          │
+│                    tags, OG metadata, lang, word count)  │
+└──────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                    RUNTIME (Browser)                    │
-│                                                         │
-│  Injected script (head-inline)                          │
-│       │                                                 │
-│       ├─ fetch('/_webmcp/manifest.json')                │
-│       │                                                 │
-│       └─ navigator.modelContext.registerTool()          │
-│            ├─ search_content                            │
-│            ├─ list_sections                             │
-│            ├─ go_to                                     │
-│            ├─ get_page_info                             │
-│            └─ custom tools (user-defined)               │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    RUNTIME (Browser)                     │
+│                                                          │
+│  Injected script (head-inline)                           │
+│       │                                                  │
+│       ├─ fetch('/_webmcp/manifest.json')                 │
+│       │                                                  │
+│       ├─ navigator.modelContext.provideContext()         │
+│       │    ├─ search_content (manifest/pagefind/orama)   │
+│       │    ├─ list_sections                              │
+│       │    ├─ go_to (+ requestUserInteraction)           │
+│       │    ├─ get_page_info (enhanced metadata)          │
+│       │    └─ custom tools (user-defined)                │
+│       │                                                  │
+│       └─ scanDeclarativeForms() (if formScanning: true)  │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -158,6 +199,7 @@ This integration follows [Chrome Agent Security Guidelines](https://developer.ch
 
 - **readOnlyHint** on all non-mutating tools
 - **untrustedContentHint** on tools returning page content
+- **requestUserInteraction()** for state-mutating tools (`go_to` prompts user consent before navigating)
 - **Output truncation** (default 1500 chars) prevents context overflow
 - **Prompt injection sanitization** strips common instruction patterns
 - **Cross-origin control** via `exposedTo` (default: same-origin only)
@@ -169,11 +211,22 @@ This integration follows [Chrome Agent Security Guidelines](https://developer.ch
 This is a fork of the original [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles), maintained by [FreshJuice](https://freshjuice.dev) with:
 
 - **Fixed script injection** — uses `head-inline` stage for reliable delivery on Astro v6
-- **Custom tools API** — expose your own domain-specific functionality
+- **Custom tools API** — expose your own domain-specific functionality declaratively in `astro.config.mjs`
+- **Search backends** — Pagefind and Orama full-text search, with automatic fallback
+- **Declarative form scanning** — auto-register annotated `<form>` elements as tools
+- **Enhanced metadata** — tags, OpenGraph, canonical URL, language, word count in manifest
 - **English docs & comments** — fully in English throughout
+
+---
+
+## Further Reading
+
+- [Usage Guide](docs/usage.md) — detailed setup, testing, and troubleshooting
+- [Architecture](docs/architecture.md) — design decisions and component breakdown
+- [Changelog](CHANGELOG.md) — version history
 
 ---
 
 ## License
 
-MIT — same as the original. Fork it, ship it, improve it.
+[MIT](LICENSE)

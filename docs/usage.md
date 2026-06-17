@@ -46,6 +46,16 @@ webmcp({
     },
   ],
 
+  // Auto-register annotated <form> elements as WebMCP tools
+  formScanning: true,
+
+  // Search backend for search_content
+  search: {
+    backend: 'pagefind',       // 'manifest' | 'pagefind' | 'orama'
+    oramaIndexUrl: '/search-index.json',  // required for 'orama'
+    pagefindBundlePath: '/pagefind/',     // default for 'pagefind'
+  },
+
   security: {
     exposedTo: [],
     maxOutputLength: 1500,
@@ -58,6 +68,10 @@ webmcp({
 |--------|------|---------|-------------|
 | `collections` | `string[]` | `undefined` (all) | Collections to include in the manifest |
 | `customTools` | `CustomTool[]` | `[]` | Domain-specific tools to register |
+| `formScanning` | `boolean` | `false` | Auto-register `<form name="..." description="...">` elements as tools |
+| `search.backend` | `'manifest' \| 'pagefind' \| 'orama'` | `'manifest'` | Search backend for `search_content` |
+| `search.oramaIndexUrl` | `string` | — | URL of pre-built Orama index (required for `'orama'`) |
+| `search.pagefindBundlePath` | `string` | `'/pagefind/'` | Pagefind bundle path |
 | `security.exposedTo` | `string[]` | `[]` | Origins allowed cross-origin access |
 | `security.maxOutputLength` | `number` | `1500` | Max chars per tool output |
 | `security.sanitizeOutputs` | `boolean` | `true` | Strip prompt injection patterns |
@@ -100,19 +114,75 @@ customTools: [{
 }]
 ```
 
+### Search Backends
+
+`search_content` supports three backends, with automatic fallback to manifest search:
+
+| Backend | Description | Requires |
+|---------|-------------|----------|
+| `manifest` (default) | Substring search on the generated manifest | Nothing — always works |
+| `pagefind` | Full-text search via Pagefind | `astro-pagefind` or `pagefind` on the page |
+| `orama` | Full-text search via Orama | `@freshjuice/astro-search-plugin` or similar, with `oramaIndexUrl` |
+
+**Pagefind example:**
+
+```js
+// astro.config.mjs
+import pagefind from 'astro-pagefind';
+import webmcp from '@freshjuice/astro-webmcp';
+
+export default defineConfig({
+  integrations: [
+    pagefind(),
+    webmcp({ search: { backend: 'pagefind' } }),
+  ],
+});
+```
+
+**Orama example (with @freshjuice/astro-search-plugin):**
+
+```js
+// astro.config.mjs
+import webmcp from '@freshjuice/astro-webmcp';
+
+export default defineConfig({
+  integrations: [
+    webmcp({
+      search: {
+        backend: 'orama',
+        oramaIndexUrl: '/search-index.json',
+      },
+    }),
+  ],
+});
+```
+
+### Declarative Form Scanning
+
+When `formScanning: true`, any `<form>` element with `name` and `description` attributes is auto-registered as a WebMCP tool. The integration builds the input schema from form fields and submits the form when the agent calls it.
+
+```html
+<form name="search_products" description="Search product catalog by keyword">
+  <input name="query" type="text" required>
+  <button type="submit">Search</button>
+</form>
+```
+
+This implements the spec's declarative API — no JS required. The agent sees these forms as callable tools alongside the built-in ones.
+
 ## How It Works in the Browser
 
-After build, every page includes a lightweight script (~1.5KB) that:
+After build, every page includes a lightweight script (~3KB) that:
 
 1. Checks if the browser supports WebMCP (`'modelContext' in navigator`)
 2. If not supported, exits immediately — zero impact
-3. If supported, loads `/_webmcp/manifest.json` and registers tools
+3. If supported, loads `/_webmcp/manifest.json` and registers tools via `provideContext()` (batch) or `registerTool()` (individual)
 
 ### Built-in Tools
 
 #### `search_content`
 
-Search site content by keyword.
+Search site content by keyword. Uses the configured backend (manifest, Pagefind, or Orama) with automatic fallback.
 
 ```json
 {
@@ -146,7 +216,7 @@ List available content sections/collections.
 
 #### `go_to`
 
-Navigate to a specific page.
+Navigate to a specific page. **Prompts user consent** via `requestUserInteraction()` before redirecting — per Chrome Agent Security Guidelines for state-mutating tools.
 
 ```json
 {
@@ -174,7 +244,7 @@ Get metadata about the current page.
 }
 ```
 
-Returns `{ title, description, headings, url }`.
+Returns `{ title, description, headings, url, lang, canonical, wordCount }`.
 
 ## Testing Locally
 
@@ -205,17 +275,16 @@ const result = await navigator.modelContext.executeTool(searchTool, '{"query": "
 console.log(result);
 ```
 
-## Combining with Declarative API
+## Declarative Forms (Alternative to customTools)
 
-The integration uses the Imperative API for search and navigation. For existing forms on your site, you can add the Declarative API manually — both coexist:
+For simple forms, you can use the declarative approach instead of `customTools`. When `formScanning: true`, annotated forms are auto-registered:
 
 ```astro
 ---
 // src/pages/contact.astro
 ---
-<form toolname="send_message"
-      tooldescription="Send a contact message."
-      toolautosubmit
+<form name="send_message"
+      description="Send a contact message."
       action="/api/contact">
   <label for="email">Email</label>
   <input type="email" name="email" required>
@@ -227,7 +296,7 @@ The integration uses the Imperative API for search and navigation. For existing 
 </form>
 ```
 
-The agent will see **both** the integration tools + the declarative form tools.
+The agent will see **both** the integration tools + the declarative form tools + any custom tools.
 
 ## Generated Manifest
 
@@ -246,7 +315,12 @@ After build, `dist/_webmcp/manifest.json` contains:
       "title": "Introducing WebMCP",
       "description": "How to expose content for AI agents",
       "collection": "blog",
-      "tags": ["webmcp", "ai"]
+      "tags": ["webmcp", "ai"],
+      "ogTitle": "Introducing WebMCP — FreshJuice Blog",
+      "ogDescription": "A comprehensive guide to WebMCP for Astro sites",
+      "canonical": "https://mysite.com/blog/introducing-webmcp/",
+      "lang": "en",
+      "wordCount": 1200
     }
   ]
 }
@@ -277,4 +351,11 @@ The integration is a **progressive enhancement** — sites work normally in brow
 ### Search returns no results
 
 - Search is case-insensitive on `title`, `description`, and `tags` fields
-- If frontmatter has no `description`, search only matches on `title`
+- If using `pagefind` or `orama` backend, verify the search index is available on the page
+- The integration automatically falls back to manifest search if the configured backend fails
+
+### Pagefind/Orama search not working
+
+- For `pagefind`: verify `astro-pagefind` is installed and the Pagefind bundle is at the configured path
+- For `orama`: verify `oramaIndexUrl` points to a valid pre-built Orama index JSON file
+- Check browser console for `[astro-webmcp]` warnings — they indicate backend failures with automatic fallback
