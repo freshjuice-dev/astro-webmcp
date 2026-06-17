@@ -1,6 +1,6 @@
 {
   "name": "@freshjuice/astro-webmcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Astro integration that exposes your site content via WebMCP for AI agents — by FreshJuice",
   "type": "module",
   "main": "./dist/index.js",
