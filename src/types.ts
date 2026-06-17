@@ -1,55 +1,55 @@
-/** Opções de configuração do astro-webmcp */
+/** Configuration options for astro-webmcp */
 export interface WebMCPOptions {
-  /** Collections a expor (default: todas as que tiverem páginas) */
+  /** Collections to expose (default: all that have pages) */
   collections?: string[];
-  /** Tools customizados adicionais */
+  /** Additional custom tools */
   customTools?: CustomTool[];
-  /** Opções de segurança */
+  /** Security options */
   security?: SecurityOptions;
 }
 
-/** Opções de segurança do WebMCP (baseado em Chrome Agent Security Guidelines) */
+/** Security options (based on Chrome Agent Security Guidelines) */
 export interface SecurityOptions {
   /**
-   * Origens permitidas para acessar as tools via exposedTo.
-   * Default: undefined (apenas same-origin, mais seguro).
+   * Origins allowed to access tools via exposedTo.
+   * Default: undefined (same-origin only, most secure).
    * @see https://developer.chrome.com/docs/ai/webmcp/secure-tools
    */
   exposedTo?: string[];
   /**
-   * Limite máximo de caracteres no output de cada tool.
-   * Previne context window overflow e reduz superfície para prompt injection.
-   * Default: 1500 (recomendação Chrome: 1.5K chars por output)
+   * Maximum character limit per tool output.
+   * Prevents context window overflow and reduces prompt injection surface.
+   * Default: 1500 (Chrome recommendation: 1.5K chars per output)
    */
   maxOutputLength?: number;
   /**
-   * Ativa sanitização de outputs para mitigar indirect prompt injection.
-   * Remove padrões que parecem instruções para LLMs no conteúdo.
+   * Enables output sanitization to mitigate indirect prompt injection.
+   * Strips patterns that resemble LLM instructions from content.
    * Default: true
    */
   sanitizeOutputs?: boolean;
 }
 
-/** Tool customizado definido pelo usuário */
+/** User-defined custom tool */
 export interface CustomTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /** Corpo da função execute serializado (roda no browser) */
+  /** Serialized execute function body (runs in browser) */
   executeBody: string;
-  /** Annotations de segurança */
+  /** Security annotations */
   annotations?: ToolAnnotations;
 }
 
-/** Annotations de segurança para tools WebMCP */
+/** Security annotations for WebMCP tools */
 export interface ToolAnnotations {
-  /** Tool não altera estado (default: true para tools built-in) */
+  /** Tool does not mutate state (default: true for built-in tools) */
   readOnlyHint?: boolean;
-  /** Output pode conter conteúdo não-confiável (UGC, dados externos) */
+  /** Output may contain untrusted content (UGC, external data) */
   untrustedContentHint?: boolean;
 }
 
-/** Entrada no manifesto gerado */
+/** Entry in the generated manifest */
 export interface ManifestEntry {
   slug: string;
   url: string;
@@ -59,7 +59,7 @@ export interface ManifestEntry {
   tags?: string[];
 }
 
-/** Manifesto completo gerado no build */
+/** Full manifest generated at build time */
 export interface WebMCPManifest {
   generatedAt: string;
   site?: string;

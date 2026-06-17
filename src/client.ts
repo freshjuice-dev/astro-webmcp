@@ -1,13 +1,13 @@
 /**
- * Script client-side injetado em toda página.
- * Carrega o manifesto e registra tools WebMCP via document.modelContext.
+ * Client-side script injected into every page.
+ * Loads the manifest and registers WebMCP tools via navigator.modelContext.
  *
- * Segurança aplicada conforme Chrome Agent Security Guidelines:
- * - readOnlyHint em todas as tools que não mutam estado
- * - untrustedContentHint em tools que retornam conteúdo de páginas
- * - Limite de caracteres nos outputs (previne context overflow)
- * - Sanitização contra indirect prompt injection
- * - exposedTo para controle cross-origin
+ * Security applied per Chrome Agent Security Guidelines:
+ * - readOnlyHint on all non-mutating tools
+ * - untrustedContentHint on tools returning page content
+ * - Output character limit (prevents context overflow)
+ * - Sanitization against indirect prompt injection
+ * - exposedTo for cross-origin control
  *
  * @see https://developer.chrome.com/docs/ai/webmcp/secure-tools
  * @see https://developer.chrome.com/docs/agents/security
@@ -27,22 +27,29 @@ interface Manifest {
   entries: ManifestEntry[];
 }
 
-/** Config injetada pelo integration via __WEBMCP_CONFIG__ */
+/** Config injected by the integration via __WEBMCP_CONFIG__ */
 interface WebMCPClientConfig {
   exposedTo?: string[];
   maxOutputLength: number;
   sanitizeOutputs: boolean;
+  customTools?: Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    executeBody: string;
+    annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean };
+  }>;
 }
 
-// Config é substituída no build pelo integration
+// Config is replaced at build time by the integration
 const CONFIG: WebMCPClientConfig = (globalThis as any).__WEBMCP_CONFIG__ ?? {
   maxOutputLength: 1500,
   sanitizeOutputs: true,
 };
 
 /**
- * Trunca output respeitando o limite de caracteres.
- * Previne context window overflow no agent (guardrail determinístico).
+ * Truncates output to the character limit.
+ * Prevents context window overflow in the agent (deterministic guardrail).
  */
 function truncateOutput(str: string, max: number): string {
   if (str.length <= max) return str;
@@ -50,23 +57,23 @@ function truncateOutput(str: string, max: number): string {
 }
 
 /**
- * Sanitiza conteúdo para mitigar indirect prompt injection.
- * Remove padrões comuns de instruções embutidas em conteúdo.
+ * Sanitizes content to mitigate indirect prompt injection.
+ * Strips common instruction patterns embedded in content.
  */
 function sanitize(text: string): string {
   if (!CONFIG.sanitizeOutputs) return text;
   return text
-    // Remove padrões de "ignore previous instructions"
+    // Strip "ignore previous instructions" patterns
     .replace(/ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)/gi, '[filtered]')
-    // Remove tentativas de role-play/system prompt injection
+    // Strip role-play / system prompt injection attempts
     .replace(/you\s+are\s+(now|a)\s+/gi, '[filtered]')
     .replace(/(system|assistant|user)\s*:\s*/gi, '[filtered]')
-    // Remove marcadores de instruções
+    // Strip instruction markers
     .replace(/<\/?(?:system|instruction|prompt|command)[^>]*>/gi, '[filtered]');
 }
 
 /**
- * Envelopa output com sanitização e truncamento.
+ * Wraps output with sanitization and truncation.
  */
 function safeOutput(data: unknown): string {
   let str = JSON.stringify(data);
@@ -87,18 +94,18 @@ function safeOutput(data: unknown): string {
     return;
   }
 
-  // Opções de registro compartilhadas (exposedTo para cross-origin control)
+  // Shared registration options (exposedTo for cross-origin control)
   const registerOptions = CONFIG.exposedTo?.length
     ? { exposedTo: CONFIG.exposedTo }
     : undefined;
 
-  // Tool: buscar conteúdo
+  // Tool: search content
   mc.registerTool({
     name: 'search_content',
     description: 'Search articles and pages on this site by keyword. Returns title, URL, and description of matching results.',
     annotations: {
       readOnlyHint: true,
-      untrustedContentHint: true, // Conteúdo vem de páginas que podem ter UGC
+      untrustedContentHint: true, // Content comes from pages that may have UGC
     },
     inputSchema: {
       type: 'object',
@@ -111,7 +118,7 @@ function safeOutput(data: unknown): string {
     },
     execute: async (args: { query: string; collection?: string; limit?: number }) => {
       const q = args.query.toLowerCase();
-      const limit = Math.min(args.limit ?? 5, 20); // Cap máximo de resultados
+      const limit = Math.min(args.limit ?? 5, 20); // Cap max results
       let results = manifest.entries.filter(
         (e) =>
           e.title.toLowerCase().includes(q) ||
@@ -125,7 +132,7 @@ function safeOutput(data: unknown): string {
     },
   }, registerOptions);
 
-  // Tool: listar collections/seções
+  // Tool: list collections / sections
   mc.registerTool({
     name: 'list_sections',
     description: 'List all content sections (collections) available on this site with item counts.',
@@ -136,12 +143,12 @@ function safeOutput(data: unknown): string {
     execute: async () => safeOutput(manifest.collections),
   }, registerOptions);
 
-  // Tool: navegar para conteúdo
+  // Tool: navigate to content
   mc.registerTool({
     name: 'go_to',
     description: 'Navigate to a specific page on this site by its slug.',
     annotations: {
-      readOnlyHint: false, // Altera estado (navegação)
+      readOnlyHint: false, // Mutates state (navigation)
     },
     inputSchema: {
       type: 'object',
@@ -162,13 +169,13 @@ function safeOutput(data: unknown): string {
     },
   }, registerOptions);
 
-  // Tool: obter conteúdo da página atual
+  // Tool: get current page info
   mc.registerTool({
     name: 'get_page_info',
     description: 'Get metadata about the current page (title, description, headings).',
     annotations: {
       readOnlyHint: true,
-      untrustedContentHint: true, // DOM pode conter UGC (comentários, etc)
+      untrustedContentHint: true, // DOM may contain UGC (comments, etc.)
     },
     inputSchema: { type: 'object', properties: {} },
     execute: async () => {
@@ -182,4 +189,32 @@ function safeOutput(data: unknown): string {
       return safeOutput({ title, description, headings, url: window.location.pathname });
     },
   }, registerOptions);
+
+  // ---- Custom tools (user-defined via astro.config) ---------------------------
+  if (CONFIG.customTools?.length) {
+    for (const tool of CONFIG.customTools) {
+      try {
+        // eslint-disable-next-line no-new-func
+        const executeFn = new Function('params', 'safeOutput', tool.executeBody) as (
+          params: Record<string, unknown>,
+          so: (data: unknown) => string,
+        ) => unknown;
+        mc.registerTool(
+          {
+            name: tool.name,
+            description: tool.description,
+            annotations: tool.annotations ?? { readOnlyHint: true },
+            inputSchema: tool.inputSchema,
+            execute: async (params: Record<string, unknown>) => {
+              const result = executeFn(params, safeOutput);
+              return result instanceof Promise ? await result : result;
+            },
+          },
+          registerOptions,
+        );
+      } catch (err) {
+        console.warn(`[astro-webmcp] Failed to register custom tool "${tool.name}":`, err);
+      }
+    }
+  }
 })();

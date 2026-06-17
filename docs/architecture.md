@@ -1,6 +1,6 @@
-# Arquitetura — astro-webmcp
+# Architecture — @freshjuice/astro-webmcp
 
-## Visão geral
+## Overview
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -9,7 +9,7 @@
 │  Content Collections ──→ Hook astro:build:done          │
 │  (blog, docs, etc.)      │                              │
 │                           ▼                              │
-│                    Manifesto JSON                        │
+│                    Manifest JSON                         │
 │                    /_webmcp/manifest.json                │
 └─────────────────────────────────────────────────────────┘
                             │
@@ -17,46 +17,51 @@
 ┌─────────────────────────────────────────────────────────┐
 │                     RUNTIME (Browser)                    │
 │                                                         │
-│  Script injetado (injectScript)                         │
+│  Injected script (head-inline)                          │
 │       │                                                 │
 │       ├─ fetch('/_webmcp/manifest.json')                │
 │       │                                                 │
-│       └─ document.modelContext.registerTool()           │
+│       └─ navigator.modelContext.registerTool()          │
 │            ├── search_content                           │
 │            ├── list_sections                            │
-│            └── go_to                                    │
+│            ├── go_to                                     │
+│            ├── get_page_info                            │
+│            └── custom tools (user-defined)              │
 └─────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────┐
-│                     AGENTE DE IA                         │
+│                     AI AGENT                             │
 │                                                         │
-│  Chrome (149+) descobre tools via WebMCP protocol       │
-│  Agente pode buscar, listar e navegar pelo conteúdo     │
+│  Chrome (149+) discovers tools via WebMCP protocol       │
+│  Agent can search, list, navigate, and call custom tools │
 └─────────────────────────────────────────────────────────┘
 ```
 
-## Componentes
+## Components
 
-### 1. Integração Astro (`src/index.ts`)
+### 1. Astro Integration (`src/index.ts`)
 
-Implementa a interface `AstroIntegration` com dois hooks principais:
+Implements the `AstroIntegration` interface with two main hooks:
 
 #### `astro:config:setup`
 
-- Usa `injectScript('page', ...)` para inserir o script client-side em toda página
-- O script faz feature detection (`'modelContext' in document`) antes de registrar tools
-- Carrega o manifesto via `fetch` e registra tools com `document.modelContext.registerTool()`
+- Uses `injectScript('head-inline', ...)` to insert the client-side script directly into `<head>` on every page
+- **Why `head-inline`:** Bypasses Vite bundling — more reliable than `'page'` stage on Astro v6, which can drop the script during optimization
+- The script does feature detection (`'modelContext' in navigator`) before registering tools
+- Loads the manifest via `fetch` and registers tools with `navigator.modelContext.registerTool()`
+- Injects `__WEBMCP_CONFIG__` global with security settings + custom tools
 
 #### `astro:build:done`
 
-- Recebe `dir` (diretório de output) e `pages` (lista de páginas geradas)
-- Gera `/_webmcp/manifest.json` com metadados de cada página
-- Extrai informações de collections quando disponíveis
+- Receives `dir` (output directory) and `pages` (list of generated pages)
+- Generates `/_webmcp/manifest.json` with metadata for each page
+- Extracts collection information when available
+- Respects `collections` filter option
 
-### 2. Manifesto (`/_webmcp/manifest.json`)
+### 2. Manifest (`/_webmcp/manifest.json`)
 
-Arquivo JSON estático gerado no build com a estrutura:
+Static JSON file generated at build time:
 
 ```json
 {
@@ -66,10 +71,10 @@ Arquivo JSON estático gerado no build com a estrutura:
   ],
   "entries": [
     {
-      "slug": "blog/meu-artigo",
-      "url": "/blog/meu-artigo/",
-      "title": "Meu Artigo",
-      "description": "Resumo do artigo",
+      "slug": "blog/my-article",
+      "url": "/blog/my-article/",
+      "title": "My Article",
+      "description": "Article summary",
       "collection": "blog",
       "tags": ["astro", "webmcp"]
     }
@@ -77,50 +82,75 @@ Arquivo JSON estático gerado no build com a estrutura:
 }
 ```
 
-### 3. Script client-side
+### 3. Client-side Script (`src/client.ts`)
 
-Roda no browser em toda página. Responsável por:
+Runs in the browser on every page. Responsible for:
 
-1. Verificar suporte a WebMCP (`'modelContext' in document`)
-2. Buscar o manifesto
-3. Registrar 3 tools padrão
+1. Checking WebMCP support (`'modelContext' in navigator`)
+2. Fetching the manifest
+3. Registering 4 built-in tools + any custom tools from config
 
-O script é minúsculo (~1KB gzipped) e não impacta performance para browsers sem suporte — sai na primeira checagem.
+The script is lightweight (~1.5KB gzipped) and has zero impact on browsers without WebMCP support — it exits on the first check.
 
-## APIs WebMCP utilizadas
+### 4. Custom Tools System
 
-| API | Uso |
-|-----|-----|
-| `document.modelContext.registerTool()` | Registra cada tool com nome, descrição, schema e executor |
-| `inputSchema` (JSON Schema) | Define parâmetros tipados para os agentes |
-| `execute` (async function) | Lógica executada quando agente chama o tool |
+Custom tools are serialized into `__WEBMCP_CONFIG__` at build time and registered by the client script at runtime:
 
-Referência: https://developer.chrome.com/docs/ai/webmcp/imperative-api
+```
+astro.config.mjs                    Build time
+  customTools: [...]      ──────→   __WEBMCP_CONFIG__.customTools
+                                          │
+                                          ▼
+                                    Browser runtime
+                                    new Function(params, safeOutput, executeBody)
+                                          │
+                                          ▼
+                                    navigator.modelContext.registerTool()
+```
 
-## Decisões de design
+Each custom tool's `executeBody` is compiled via `new Function(params, safeOutput, body)` — it receives the tool's input params and the `safeOutput` helper (for sanitization + truncation).
 
-### Por que manifesto JSON e não virtual module?
+## WebMCP APIs Used
 
-- Funciona tanto em SSG quanto SSR
-- Não precisa de plugin Vite complexo
-- Cache-friendly (arquivo estático servido pelo CDN)
-- Pode ser pré-gerado por CI sem rodar o Astro completo
+| API | Usage |
+|-----|-------|
+| `navigator.modelContext.registerTool()` | Registers each tool with name, description, schema, and executor |
+| `inputSchema` (JSON Schema) | Defines typed parameters for agents |
+| `execute` (async function) | Logic executed when agent calls the tool |
 
-### Por que busca client-side?
+Reference: https://developer.chrome.com/docs/ai/webmcp/imperative-api
 
-- Sites pequenos/médios (<1000 páginas): manifesto leve, busca instantânea
-- Não requer endpoint server-side
-- Para sites grandes: futura opção de endpoint `/api/webmcp-search` via middleware
+## Design Decisions
 
-### Por que Imperative API (não Declarative)?
+### Why JSON manifest instead of virtual module?
 
-- Declarative API funciona só para formulários existentes
-- Busca e navegação não são formulários — precisam de lógica JS
-- Imperative dá controle total sobre o que o tool faz
+- Works for both SSG and SSR
+- No complex Vite plugin needed
+- Cache-friendly (static file served by CDN)
+- Can be pre-generated by CI without running full Astro build
 
-## Extensibilidade futura
+### Why client-side search?
 
-- **Tools customizados via config** — permitir o dev adicionar tools próprios
-- **Busca full-text** — integrar com Pagefind ou similar ao invés de busca simples no manifesto
-- **Declarative automático** — detectar `<form>` e injetar `toolname` via rehype plugin
-- **Estado da página** — expor contexto dinâmico (artigo atual, breadcrumb, filtros ativos)
+- Small/medium sites (<1000 pages): manifest is lightweight, search is instant
+- No server-side endpoint required
+- For large sites: future option of `/api/webmcp-search` endpoint via middleware
+
+### Why Imperative API (not Declarative)?
+
+- Declarative API only works for existing forms
+- Search and navigation aren't forms — they need JS logic
+- Imperative gives full control over what the tool does
+- Custom tools require imperative API by nature
+
+### Why `head-inline` instead of `page`?
+
+- Astro v6's `injectScript('page', ...)` can drop scripts during Vite optimization
+- `head-inline` injects directly into `<head>` as a `<script>` tag — guaranteed delivery
+- Same performance characteristics (the script is tiny and exits early on unsupported browsers)
+
+## Future Extensibility
+
+- **Full-text search** — integrate with Pagefind or similar instead of simple manifest search
+- **Automatic declarative** — detect `<form>` elements and inject `toolname` via rehype plugin
+- **Page state** — expose dynamic context (current article, breadcrumbs, active filters)
+- **Server-side search endpoint** — for sites with 1000+ pages

@@ -1,51 +1,118 @@
-# Guia de uso — astro-webmcp
+# Usage Guide — @freshjuice/astro-webmcp
 
-## Instalação
+## Installation
 
 ```bash
-npm install astro-webmcp
+npm install @freshjuice/astro-webmcp
 ```
 
-## Configuração mínima
+## Minimal Setup
 
 ```js
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
-import webmcp from 'astro-webmcp';
+import webmcp from '@freshjuice/astro-webmcp';
 
 export default defineConfig({
   integrations: [webmcp()],
 });
 ```
 
-Isso expõe todo o conteúdo do site via WebMCP automaticamente.
+This exposes all site content via WebMCP automatically.
 
-## Opções de configuração
+## Configuration Options
 
 ```js
 webmcp({
-  // Filtrar quais collections expor (default: todas)
+  // Filter which collections to expose (default: all)
   collections: ['blog', 'docs'],
+
+  // Custom domain-specific tools
+  customTools: [
+    {
+      name: 'search_tracker',
+      description: 'Search the tracker database by cookie name or domain.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Cookie name or domain' },
+        },
+        required: ['query'],
+      },
+      executeBody: `return fetch('/api/search?q=' + encodeURIComponent(params.query))
+        .then(r => r.json())
+        .then(d => safeOutput(d));`,
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+    },
+  ],
+
+  security: {
+    exposedTo: [],
+    maxOutputLength: 1500,
+    sanitizeOutputs: true,
+  },
 })
 ```
 
-| Opção | Tipo | Default | Descrição |
-|-------|------|---------|-----------|
-| `collections` | `string[]` | `undefined` (todas) | Lista de collections para incluir no manifesto |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `collections` | `string[]` | `undefined` (all) | Collections to include in the manifest |
+| `customTools` | `CustomTool[]` | `[]` | Domain-specific tools to register |
+| `security.exposedTo` | `string[]` | `[]` | Origins allowed cross-origin access |
+| `security.maxOutputLength` | `number` | `1500` | Max chars per tool output |
+| `security.sanitizeOutputs` | `boolean` | `true` | Strip prompt injection patterns |
 
-## Como funciona no browser
+### Custom Tools
 
-Após o build, toda página do site inclui um script leve (~1KB) que:
+Each custom tool requires:
 
-1. Verifica se o browser suporta WebMCP (`'modelContext' in document`)
-2. Se não suporta, sai imediatamente — zero impacto
-3. Se suporta, carrega `/_webmcp/manifest.json` e registra tools
+- `name` — unique identifier
+- `description` — natural language description for AI agents
+- `inputSchema` — JSON Schema for parameters
+- `executeBody` — function body string (runs in browser). Receives `params` and `safeOutput`. Return data or a Promise.
+- `annotations` — optional security hints
 
-### Tools registradas automaticamente
+**Example — expose a contact form:**
+
+```js
+customTools: [{
+  name: 'submit_contact',
+  description: 'Submit a contact form with name, email, and message.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      email: { type: 'string', format: 'email' },
+      message: { type: 'string' },
+    },
+    required: ['name', 'email', 'message'],
+  },
+  executeBody: `
+    const res = await fetch('/api/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) return safeOutput({ error: 'Failed to submit' });
+    return safeOutput(await res.json());
+  `,
+  annotations: { readOnlyHint: false },
+}]
+```
+
+## How It Works in the Browser
+
+After build, every page includes a lightweight script (~1.5KB) that:
+
+1. Checks if the browser supports WebMCP (`'modelContext' in navigator`)
+2. If not supported, exits immediately — zero impact
+3. If supported, loads `/_webmcp/manifest.json` and registers tools
+
+### Built-in Tools
 
 #### `search_content`
 
-Busca conteúdo do site por palavra-chave.
+Search site content by keyword.
 
 ```json
 {
@@ -53,36 +120,33 @@ Busca conteúdo do site por palavra-chave.
   "inputSchema": {
     "type": "object",
     "properties": {
-      "query": { "type": "string", "description": "Termo de busca" },
-      "collection": { "type": "string", "description": "Filtrar por collection (opcional)" },
-      "limit": { "type": "number", "description": "Máximo de resultados (padrão: 5)" }
+      "query": { "type": "string", "description": "Search term" },
+      "collection": { "type": "string", "description": "Filter by collection (optional)" },
+      "limit": { "type": "number", "description": "Max results (default: 5)" }
     },
     "required": ["query"]
   }
 }
 ```
 
-**Exemplo de uso por agente:** "Busque artigos sobre TypeScript no blog"
+**Agent example:** "Search for articles about TypeScript in the blog"
 
 #### `list_sections`
 
-Lista as seções/collections disponíveis no site.
+List available content sections/collections.
 
 ```json
 {
   "name": "list_sections",
-  "inputSchema": {
-    "type": "object",
-    "properties": {}
-  }
+  "inputSchema": { "type": "object", "properties": {} }
 }
 ```
 
-**Exemplo:** "Quais seções de conteúdo este site tem?"
+**Agent example:** "What content sections does this site have?"
 
 #### `go_to`
 
-Navega para uma página específica.
+Navigate to a specific page.
 
 ```json
 {
@@ -90,71 +154,84 @@ Navega para uma página específica.
   "inputSchema": {
     "type": "object",
     "properties": {
-      "slug": { "type": "string", "description": "Slug/caminho da página" }
+      "slug": { "type": "string", "description": "Page slug or path" }
     },
     "required": ["slug"]
   }
 }
 ```
 
-**Exemplo:** "Abra o artigo sobre WebMCP"
+**Agent example:** "Open the article about WebMCP"
 
-## Testar localmente
+#### `get_page_info`
 
-### 1. Habilitar WebMCP no Chrome
+Get metadata about the current page.
 
-Navegue até `chrome://flags/#enable-webmcp-testing` → **Enabled** → Relaunch.
+```json
+{
+  "name": "get_page_info",
+  "inputSchema": { "type": "object", "properties": {} }
+}
+```
 
-### 2. Instalar a extensão de teste
+Returns `{ title, description, headings, url }`.
+
+## Testing Locally
+
+### 1. Enable WebMCP in Chrome
+
+Navigate to `chrome://flags#webmcp-for-testing` → **Enabled** → Relaunch.
+
+### 2. Install the test extension
 
 [Model Context Tool Inspector](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd)
 
-### 3. Verificar tools no DevTools
+### 3. Verify tools in DevTools
 
-Abra DevTools → Console:
+Open DevTools → Console:
 
 ```js
-const tools = await document.modelContext.getTools();
+const tools = await navigator.modelContext.getTools();
 console.log(tools);
-// [{name: "search_content", ...}, {name: "list_sections", ...}, {name: "go_to", ...}]
+// [{name: "search_content", ...}, {name: "list_sections", ...}, ...]
 ```
 
-### 4. Testar um tool manualmente
+### 4. Test a tool manually
 
 ```js
-const tools = await document.modelContext.getTools();
+const tools = await navigator.modelContext.getTools();
 const searchTool = tools.find(t => t.name === 'search_content');
-const result = await document.modelContext.executeTool(searchTool, '{"query": "astro"}');
+const result = await navigator.modelContext.executeTool(searchTool, '{"query": "astro"}');
 console.log(result);
 ```
 
-## Combinando com Declarative API
+## Combining with Declarative API
 
-O plugin usa a Imperative API para busca e navegação. Para formulários existentes no site, você pode adicionar a Declarative API manualmente — as duas coexistem:
+The integration uses the Imperative API for search and navigation. For existing forms on your site, you can add the Declarative API manually — both coexist:
 
 ```astro
 ---
-// src/pages/contato.astro
+// src/pages/contact.astro
 ---
 <form toolname="send_message"
-      tooldescription="Envia uma mensagem de contato."
+      tooldescription="Send a contact message."
       toolautosubmit
       action="/api/contact">
   <label for="email">Email</label>
   <input type="email" name="email" required>
 
-  <label for="message">Mensagem</label>
+  <label for="message">Message</label>
   <textarea name="message" required></textarea>
 
-  <button type="submit">Enviar</button>
+  <button type="submit">Send</button>
 </form>
 ```
 
-O agente verá **ambos** os tools da integração + os tools declarativos dos formulários.
+The agent will see **both** the integration tools + the declarative form tools.
 
-## Manifesto gerado
+## Generated Manifest
 
-Após o build, o arquivo `dist/_webmcp/manifest.json` contém:
+After build, `dist/_webmcp/manifest.json` contains:
 
 ```json
 {
@@ -164,10 +241,10 @@ Após o build, o arquivo `dist/_webmcp/manifest.json` contém:
   ],
   "entries": [
     {
-      "slug": "blog/introducao-webmcp",
-      "url": "/blog/introducao-webmcp/",
-      "title": "Introdução ao WebMCP",
-      "description": "Como expor conteúdo para agentes de IA",
+      "slug": "blog/introducing-webmcp",
+      "url": "/blog/introducing-webmcp/",
+      "title": "Introducing WebMCP",
+      "description": "How to expose content for AI agents",
       "collection": "blog",
       "tags": ["webmcp", "ai"]
     }
@@ -175,29 +252,29 @@ Após o build, o arquivo `dist/_webmcp/manifest.json` contém:
 }
 ```
 
-## Compatibilidade
+## Compatibility
 
-| Browser | Suporte |
+| Browser | Support |
 |---------|---------|
-| Chrome 149+ | ✅ (flag ou origin trial) |
-| Outros browsers | ❌ (script não executa, zero impacto) |
+| Chrome 149+ | ✅ (flag or origin trial) |
+| Other browsers | ❌ (script doesn't execute, zero impact) |
 
-O plugin é um **progressive enhancement** — sites continuam funcionando normalmente em browsers sem suporte.
+The integration is a **progressive enhancement** — sites work normally in browsers without WebMCP support.
 
 ## Troubleshooting
 
-### Tools não aparecem
+### Tools don't appear
 
-1. Verifique que a flag `chrome://flags/#enable-webmcp-testing` está habilitada
-2. Confira no Network tab que `/_webmcp/manifest.json` retorna 200
-3. No Console, verifique `'modelContext' in document` → deve ser `true`
+1. Verify `chrome://flags#webmcp-for-testing` is enabled
+2. Check Network tab — `/_webmcp/manifest.json` should return 200
+3. In Console, check `'modelContext' in navigator` → should be `true`
 
-### Manifesto vazio
+### Empty manifest
 
-- Confirme que o build completou sem erros
-- Verifique que suas Content Collections estão definidas em `src/content/config.ts`
+- Confirm the build completed without errors
+- Verify your Content Collections are defined in `src/content/config.ts`
 
-### Busca não retorna resultados
+### Search returns no results
 
-- A busca é case-insensitive nos campos `title`, `description` e `tags`
-- Se não tem `description` no frontmatter, só busca no `title`
+- Search is case-insensitive on `title`, `description`, and `tags` fields
+- If frontmatter has no `description`, search only matches on `title`

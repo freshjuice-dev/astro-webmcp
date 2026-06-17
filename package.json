@@ -1,7 +1,7 @@
 {
-  "name": "astro-webmcp",
-  "version": "0.2.0",
-  "description": "Astro integration that exposes your site content via WebMCP for AI agents",
+  "name": "@freshjuice/astro-webmcp",
+  "version": "1.0.0",
+  "description": "Astro integration that exposes your site content via WebMCP for AI agents — by FreshJuice",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -26,18 +26,25 @@
     "seo",
     "optimization",
     "security",
-    "prompt-injection"
+    "prompt-injection",
+    "freshjuice"
   ],
-  "homepage": "https://github.com/fabricioctelles/astro-webmcp",
+  "homepage": "https://github.com/freshjuice-dev/astro-webmcp",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fabricioctelles/astro-webmcp.git"
+    "url": "https://github.com/freshjuice-dev/astro-webmcp.git"
   },
   "license": "MIT",
+  "author": {
+    "name": "FreshJuice",
+    "email": "hello@freshjuice.dev",
+    "url": "https://freshjuice.dev"
+  },
   "peerDependencies": {
     "astro": "^6.0.0"
   },
   "devDependencies": {
+    "@types/node": "^25.9.3",
     "astro": "^6.0.0",
     "typescript": "^5.8.0"
   }
