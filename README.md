@@ -7,10 +7,6 @@
 
 **Astro integration that exposes your site content via WebMCP for AI agents.** Make your Astro site AI-agent ready in one line of code.
 
-Built and maintained by [FreshJuice](https://freshjuice.dev) — a developer studio shipping lean tools since 2019.
-
-> **Based on** [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles) — the original Astro WebMCP integration. Forked with gratitude.
-
 ---
 
 ## What is WebMCP?
