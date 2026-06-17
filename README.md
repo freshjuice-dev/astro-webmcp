@@ -55,12 +55,12 @@ webmcp({
   // Custom tools — expose your own domain-specific functionality
   customTools: [
     {
-      name: 'search_tracker',
-      description: 'Search the tracker database by cookie name or domain.',
+      name: 'search_products',
+      description: 'Search the product catalog by name, category, or keyword.',
       inputSchema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Cookie name or domain' },
+          query: { type: 'string', description: 'Search term' },
         },
         required: ['query'],
       },
@@ -116,18 +116,18 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      BUILD TIME                          │
+│                      BUILD TIME                         │
 │                                                         │
 │  Astro pages ────→ Hook astro:build:done                │
 │                         │                               │
 │                         ▼                               │
-│                   /_webmcp/manifest.json                 │
-│                   (titles, slugs, descriptions)          │
+│                   /_webmcp/manifest.json                │
+│                   (titles, slugs, descriptions)         │
 └─────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│                    RUNTIME (Browser)                     │
+│                    RUNTIME (Browser)                    │
 │                                                         │
 │  Injected script (head-inline)                          │
 │       │                                                 │
@@ -138,7 +138,7 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 │            ├─ list_sections                             │
 │            ├─ go_to                                     │
 │            ├─ get_page_info                             │
-│            └─ custom tools (user-defined)                │
+│            └─ custom tools (user-defined)               │
 └─────────────────────────────────────────────────────────┘
 ```
 
