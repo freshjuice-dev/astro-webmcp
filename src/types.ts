@@ -6,6 +6,25 @@ export interface WebMCPOptions {
   customTools?: CustomTool[];
   /** Security options */
   security?: SecurityOptions;
+  /** Enable declarative form scanning — auto-register annotated <form> elements as tools */
+  formScanning?: boolean;
+  /** Search backend configuration for search_content tool */
+  search?: SearchOptions;
+}
+
+/** Search backend options */
+export interface SearchOptions {
+  /**
+   * Search backend for search_content.
+   * - 'manifest': substring search on the generated manifest (default, always works)
+   * - 'pagefind': use window.pagefind if available (requires astro-pagefind or pagefind on the page)
+   * - 'orama': use @orama/orama with a pre-built index (requires @freshjuice/astro-search-plugin or similar)
+   */
+  backend?: 'manifest' | 'pagefind' | 'orama';
+  /** URL of the serialized Orama index JSON file (required when backend='orama') */
+  oramaIndexUrl?: string;
+  /** Pagefind bundle path (default: '/pagefind/') */
+  pagefindBundlePath?: string;
 }
 
 /** Security options (based on Chrome Agent Security Guidelines) */
@@ -57,6 +76,16 @@ export interface ManifestEntry {
   description?: string;
   collection?: string;
   tags?: string[];
+  /** OpenGraph title (if different from <title>) */
+  ogTitle?: string;
+  /** OpenGraph description */
+  ogDescription?: string;
+  /** Canonical URL */
+  canonical?: string;
+  /** Page language (from <html lang> or Content-Language meta) */
+  lang?: string;
+  /** Approximate word count of main content */
+  wordCount?: number;
 }
 
 /** Full manifest generated at build time */
