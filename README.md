@@ -183,13 +183,35 @@ The integration builds the input schema from form fields and submits the form wh
 
 ## Browser Support
 
-WebMCP is currently available behind a flag in Chrome 146+:
+WebMCP is currently available in Chrome 149+ via one of two methods:
+
+### Development: Chrome Flag
 
 1. Open `chrome://flags#webmcp-for-testing`
 2. Enable the flag
 3. Restart Chrome
 
-Native support (no flag required) is targeted for H2 2026. Microsoft Edge is actively collaborating.
+### Production: Origin Trial
+
+For production sites (no flag required for visitors), register for a Chrome Origin Trial token:
+
+1. Go to https://developer.chrome.com/origintrials/#/register_trial/4163014905550602241
+2. Register your domain and get a token
+3. Add the token to your site's `<head>`:
+
+```html
+<meta http-equiv="origin-trial" content="YOUR_TOKEN_HERE">
+```
+
+In Astro, add this to your base layout (`src/layouts/Layout.astro` or similar):
+
+```astro
+<meta http-equiv="origin-trial" content={import.meta.env.WEBMCP_ORIGIN_TRIAL_TOKEN}>
+```
+
+> Store the token in `.env` as `WEBMCP_ORIGIN_TRIAL_TOKEN=your-token` — never hardcode in source.
+
+Native support (no flag or token required) is targeted for H2 2026. Microsoft Edge is actively collaborating.
 
 ---
 

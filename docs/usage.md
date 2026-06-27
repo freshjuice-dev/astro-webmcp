@@ -335,13 +335,42 @@ After build, `dist/_webmcp/manifest.json` contains:
 
 The integration is a **progressive enhancement** — sites work normally in browsers without WebMCP support.
 
+### Origin Trial Setup (Production)
+
+To use WebMCP in production without requiring visitors to toggle a flag, register for a Chrome Origin Trial:
+
+1. Visit https://developer.chrome.com/origintrials/#/register_trial/4163014905550602241
+2. Click **Register** and fill in your domain and usage details
+3. Copy the generated token
+4. Add the `<meta>` tag to your base layout:
+
+```astro
+<!-- src/layouts/Layout.astro -->
+<meta http-equiv="origin-trial" content={import.meta.env.WEBMCP_ORIGIN_TRIAL_TOKEN}>
+```
+
+Store the token in `.env`:
+
+```bash
+WEBMCP_ORIGIN_TRIAL_TOKEN=AhbW+...your-token-here...
+```
+
+The token is domain-scoped — it only works on the origin you registered. Token expires when the trial ends; Chrome will email you before expiry. Once native WebMCP ships (targeted H2 2026), the token is no longer needed and the `<meta>` tag can be removed.
+
 ## Troubleshooting
 
 ### Tools don't appear
 
-1. Verify `chrome://flags#webmcp-for-testing` is enabled
+1. Verify `chrome://flags#webmcp-for-testing` is enabled (dev) or your origin trial `<meta>` tag is present (production)
 2. Check Network tab — `/_webmcp/manifest.json` should return 200
 3. In Console, check `'modelContext' in navigator` → should be `true`
+
+### Origin trial token not working
+
+- Verify the token is for the correct domain (tokens are domain-scoped)
+- Check the token hasn't expired (Chrome emails before expiry)
+- Confirm the `<meta>` tag appears in the rendered page source (View Source, not DevTools Elements)
+- The `<meta>` tag must be in the initial HTML — injecting it via JS won't work
 
 ### Empty manifest
 
