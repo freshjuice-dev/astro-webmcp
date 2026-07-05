@@ -5,14 +5,15 @@
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./middleware": "./dist/middleware.mjs"
   },
   "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/middleware.mjs dist/middleware.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
