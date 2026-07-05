@@ -1,6 +1,13 @@
 /**
  * Client-side script injected into every page.
- * Loads the manifest and registers WebMCP tools via navigator.modelContext.
+ * Loads the manifest and registers WebMCP tools via document.modelContext.
+ *
+ * Conforms to the WebMCP spec (webmachinelearning/webmcp) as of 2026-07:
+ * - document.modelContext as primary API surface
+ * - provideContext() batch registration with registerTool() fallback
+ * - AbortController / signal for tool lifecycle management
+ * - requestUserInteraction() for state-mutating tools
+ * - Structured content response format
  *
  * Security applied per Chrome Agent Security Guidelines:
  * - readOnlyHint on all non-mutating tools
@@ -10,6 +17,7 @@
  * - exposedTo for cross-origin control
  * - requestUserInteraction() for state-mutating tools (go_to)
  *
+ * @see https://webmachinelearning.github.io/webmcp/
  * @see https://developer.chrome.com/docs/ai/webmcp/secure-tools
  * @see https://developer.chrome.com/docs/agents/security
  */
@@ -22,6 +30,7 @@ interface ManifestEntry {
   description?: string;
   collection?: string;
   tags?: string[];
+  headings?: Array<{ id: string; text: string; level: number }>;
   ogTitle?: string;
   ogDescription?: string;
   canonical?: string;
@@ -40,67 +49,54 @@ interface SearchConfig {
   pagefindBundlePath?: string;
 }
 
-/** Config injected by the integration via __WEBMCP_CONFIG__ */
+interface CustomToolConfig {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  executeBody: string;
+  annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean };
+}
+
 interface WebMCPClientConfig {
   exposedTo?: string[];
   maxOutputLength: number;
   sanitizeOutputs: boolean;
-  customTools?: Array<{
-    name: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-    executeBody: string;
-    annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean };
-  }>;
+  customTools?: CustomToolConfig[];
   formScanning?: boolean;
   search?: SearchConfig;
 }
 
-// Config is replaced at build time by the integration
 const CONFIG: WebMCPClientConfig = (globalThis as any).__WEBMCP_CONFIG__ ?? {
   maxOutputLength: 1500,
   sanitizeOutputs: true,
 };
 
-/**
- * Truncates output to the character limit.
- * Prevents context window overflow in the agent (deterministic guardrail).
- */
 function truncateOutput(str: string, max: number): string {
   if (str.length <= max) return str;
   return str.slice(0, max - 13) + '...[truncated]';
 }
 
-/**
- * Sanitizes content to mitigate indirect prompt injection.
- * Strips common instruction patterns embedded in content.
- */
 function sanitize(text: string): string {
   if (!CONFIG.sanitizeOutputs) return text;
   return text
-    // Strip "ignore previous instructions" patterns
     .replace(/ignore\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)/gi, '[filtered]')
-    // Strip role-play / system prompt injection attempts
     .replace(/you\s+are\s+(now|a)\s+/gi, '[filtered]')
     .replace(/(system|assistant|user)\s*:\s*/gi, '[filtered]')
-    // Strip instruction markers
     .replace(/<\/?(?:system|instruction|prompt|command)[^>]*>/gi, '[filtered]');
 }
 
-/**
- * Wraps output with sanitization and truncation.
- */
-function safeOutput(data: unknown): string {
+function safeOutput(data: unknown): { content: Array<{ type: string; text: string }> } {
   let str = JSON.stringify(data);
   str = sanitize(str);
-  return truncateOutput(str, CONFIG.maxOutputLength);
+  str = truncateOutput(str, CONFIG.maxOutputLength);
+  return { content: [{ type: 'text', text: str }] };
 }
 
 // =============================================================================
 // Search backends
 // =============================================================================
 
-/** Manifest-based substring search (default, always works). */
 function searchManifest(
   manifest: Manifest,
   query: string,
@@ -120,7 +116,6 @@ function searchManifest(
   return results.slice(0, Math.min(limit, 20));
 }
 
-/** Pagefind-based full-text search (requires pagefind loaded on the page). */
 async function searchPagefind(
   query: string,
   limit = 5,
@@ -145,7 +140,6 @@ async function searchPagefind(
   }
 }
 
-/** Orama-based full-text search (requires @orama/orama loaded on the page). */
 async function searchOrama(
   query: string,
   limit = 5,
@@ -156,9 +150,8 @@ async function searchOrama(
     return [];
   }
   try {
-    // Dynamic import of @orama/orama — only loaded when backend='orama'
     // @ts-ignore — @orama/orama is an optional peer dep, not bundled
-    const orama = await import('@orama/orama');
+    const orama = await import(/* @vite-ignore */ '@orama/orama');
     const res = await fetch(oramaIndexUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const indexData = await res.json();
@@ -177,7 +170,6 @@ async function searchOrama(
   }
 }
 
-/** Unified search dispatcher — picks backend based on config. */
 async function searchContent(
   manifest: Manifest,
   query: string,
@@ -189,13 +181,11 @@ async function searchContent(
   if (backend === 'pagefind') {
     const results = await searchPagefind(query, limit);
     if (results.length > 0) return results;
-    // Fallback to manifest if pagefind returns nothing
   }
 
   if (backend === 'orama') {
     const results = await searchOrama(query, limit);
     if (results.length > 0) return results;
-    // Fallback to manifest if orama returns nothing
   }
 
   return searchManifest(manifest, query, collection, limit);
@@ -205,20 +195,13 @@ async function searchContent(
 // Declarative form scanning
 // =============================================================================
 
-/**
- * Scans the DOM for <form> elements annotated with `name` and `description`
- * attributes and registers them as WebMCP tools.
- *
- * This implements the spec's declarative API — the simplest path to WebMCP.
- * Forms with `name` and `description` become auto-discovered tools.
- */
-function scanDeclarativeForms(mc: any, registerOptions: any): void {
+function scanDeclarativeForms(mc: any, registerOptions: any): number {
   const forms = document.querySelectorAll<HTMLFormElement>('form[name][description]');
+  let count = 0;
   for (const form of forms) {
     const name = form.getAttribute('name')!;
     const description = form.getAttribute('description')!;
 
-    // Build input schema from form fields
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
     const inputs = form.querySelectorAll('input[name], select[name], textarea[name]');
@@ -240,14 +223,13 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
       {
         name,
         description,
-        annotations: { readOnlyHint: false }, // Forms mutate state
+        annotations: { readOnlyHint: false },
         inputSchema: {
           type: 'object',
           properties,
           ...(required.length > 0 ? { required } : {}),
         },
         execute: async (params: Record<string, unknown>) => {
-          // Fill form fields
           for (const [key, value] of Object.entries(params)) {
             const field = form.querySelector(`[name="${key}"]`) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
             if (field) {
@@ -258,14 +240,15 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
               }
             }
           }
-          // Submit the form
           form.requestSubmit();
           return safeOutput({ submitted: true, form: name });
         },
       },
       registerOptions,
     );
+    count++;
   }
+  return count;
 }
 
 // =============================================================================
@@ -274,32 +257,42 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
 
 (async () => {
   const mc = (document as any).modelContext ?? (navigator as any).modelContext;
-  if (!mc?.registerTool) return;
+  if (!mc?.registerTool) {
+    console.debug('[astro-webmcp] modelContext not available — WebMCP not supported in this browser');
+    return;
+  }
 
   let manifest: Manifest;
   try {
     const res = await fetch('/_webmcp/manifest.json');
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.warn(`[astro-webmcp] manifest fetch failed: HTTP ${res.status}`);
+      return;
+    }
     manifest = await res.json();
-  } catch {
+  } catch (err) {
+    console.warn('[astro-webmcp] manifest fetch error:', err);
     return;
   }
 
-  // Shared registration options (exposedTo for cross-origin control)
-  const registerOptions = CONFIG.exposedTo?.length
-    ? { exposedTo: CONFIG.exposedTo }
-    : undefined;
+  console.debug(`[astro-webmcp] manifest loaded: ${manifest.entries.length} entries, ${manifest.collections.length} collections`);
 
-  // Collect all tools for provideContext batch registration
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  const registerOptions: Record<string, unknown> = { signal };
+  if (CONFIG.exposedTo?.length) {
+    registerOptions.exposedTo = CONFIG.exposedTo;
+  }
+
   const tools: any[] = [];
 
-  // Tool: search content
   tools.push({
     name: 'search_content',
     description: 'Search articles and pages on this site by keyword. Returns title, URL, and description of matching results.',
     annotations: {
       readOnlyHint: true,
-      untrustedContentHint: true, // Content comes from pages that may have UGC
+      untrustedContentHint: true,
     },
     inputSchema: {
       type: 'object',
@@ -316,7 +309,6 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
     },
   });
 
-  // Tool: list collections / sections
   tools.push({
     name: 'list_sections',
     description: 'List all content sections (collections) available on this site with item counts.',
@@ -327,12 +319,11 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
     execute: async () => safeOutput(manifest.collections),
   });
 
-  // Tool: navigate to content (state-mutating — uses requestUserInteraction)
   tools.push({
     name: 'go_to',
     description: 'Navigate to a specific page on this site by its slug.',
     annotations: {
-      readOnlyHint: false, // Mutates state (navigation)
+      readOnlyHint: false,
     },
     inputSchema: {
       type: 'object',
@@ -346,27 +337,27 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
         (e) => e.slug === args.slug || e.url === args.slug || e.url === `/${args.slug}/`,
       );
       if (!entry) {
-        return 'Page not found. Use search_content to find available pages.';
+        return safeOutput({ error: 'Page not found. Use search_content to find available pages.' });
       }
-      // Request user consent before navigating (spec requirement for mutating tools)
       if (mc.requestUserInteraction) {
         const approved = await mc.requestUserInteraction({
           message: `Navigate to "${entry.title}" (${entry.url})?`,
         });
-        if (!approved) return 'Navigation cancelled by user.';
+        if (!approved) {
+          return safeOutput({ cancelled: true, message: 'Navigation cancelled by user.' });
+        }
       }
       window.location.href = entry.url;
       return null;
     },
   });
 
-  // Tool: get current page info
   tools.push({
     name: 'get_page_info',
-    description: 'Get metadata about the current page (title, description, headings, language, word count).',
+    description: 'Get metadata about the current page (title, description, headings, language, word count, canonical URL).',
     annotations: {
       readOnlyHint: true,
-      untrustedContentHint: true, // DOM may contain UGC (comments, etc.)
+      untrustedContentHint: true,
     },
     inputSchema: { type: 'object', properties: {} },
     execute: async () => {
@@ -376,11 +367,11 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
       const headings = Array.from(document.querySelectorAll('h1, h2, h3')).map((h) => ({
         level: parseInt(h.tagName[1]),
         text: h.textContent?.trim() ?? '',
+        ...(h.id ? { id: h.id } : {}),
       }));
       const lang = document.documentElement.lang || undefined;
       const canonical =
         document.querySelector('link[rel="canonical"]')?.getAttribute('href') || undefined;
-      // Approximate word count from main content
       let wordCount: number | undefined;
       const main = document.querySelector('main');
       if (main) {
@@ -399,20 +390,20 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
     },
   });
 
-  // ---- Custom tools (user-defined via astro.config) ---------------------------
   if (CONFIG.customTools?.length) {
     for (const tool of CONFIG.customTools) {
       try {
         // eslint-disable-next-line no-new-func
         const executeFn = new Function('params', 'safeOutput', tool.executeBody) as (
           params: Record<string, unknown>,
-          so: (data: unknown) => string,
+          so: typeof safeOutput,
         ) => unknown;
         tools.push({
           name: tool.name,
           description: tool.description,
           annotations: tool.annotations ?? { readOnlyHint: true },
           inputSchema: tool.inputSchema,
+          ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
           execute: async (params: Record<string, unknown>) => {
             const result = executeFn(params, safeOutput);
             return result instanceof Promise ? await result : result;
@@ -424,18 +415,21 @@ function scanDeclarativeForms(mc: any, registerOptions: any): void {
     }
   }
 
-  // Register all tools at once via provideContext (spec-preferred batch method)
   if (mc.provideContext) {
     mc.provideContext({ tools }, registerOptions);
   } else {
-    // Fallback: register individually
     for (const tool of tools) {
       mc.registerTool(tool, registerOptions);
     }
   }
+  console.info(`[astro-webmcp] ${tools.length} tool${tools.length === 1 ? '' : 's'} registered via ${mc.provideContext ? 'provideContext()' : 'registerTool()'}`);
 
-  // ---- Declarative form scanning (if enabled) --------------------------------
+  (globalThis as any).__WEBMCP_ABORT__ = () => controller.abort();
+
   if (CONFIG.formScanning) {
-    scanDeclarativeForms(mc, registerOptions);
+    const formCount = scanDeclarativeForms(mc, registerOptions);
+    if (formCount > 0) {
+      console.info(`[astro-webmcp] ${formCount} declarative form${formCount === 1 ? '' : 's'} registered as tools`);
+    }
   }
 })();

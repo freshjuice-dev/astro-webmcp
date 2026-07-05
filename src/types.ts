@@ -10,6 +10,16 @@ export interface WebMCPOptions {
   formScanning?: boolean;
   /** Search backend configuration for search_content tool */
   search?: SearchOptions;
+  /**
+   * Generate /.well-known/skills/index.json for Agent Skills Discovery.
+   * Set to false to disable. Default: true.
+   * Only generated at build time (static output).
+   */
+  skills?: boolean;
+  /** Name for the skills index (default: "WebMCP Tools") */
+  skillsName?: string;
+  /** Description for the skills index */
+  skillsDescription?: string;
 }
 
 /** Search backend options */
@@ -54,6 +64,12 @@ export interface CustomTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /**
+   * Optional output schema (spec draft, Issue #9).
+   * Declares the structure of the tool's return value for agent validation.
+   * Not yet enforced by Chrome — included for forward compatibility.
+   */
+  outputSchema?: Record<string, unknown>;
   /** Serialized execute function body (runs in browser) */
   executeBody: string;
   /** Security annotations */
@@ -68,6 +84,14 @@ export interface ToolAnnotations {
   untrustedContentHint?: boolean;
 }
 
+/**
+ * Structured content response per WebMCP spec.
+ * Tools return content as typed parts (currently only "text").
+ */
+export interface ToolContentResponse {
+  content: Array<{ type: string; text: string }>;
+}
+
 /** Entry in the generated manifest */
 export interface ManifestEntry {
   slug: string;
@@ -76,6 +100,8 @@ export interface ManifestEntry {
   description?: string;
   collection?: string;
   tags?: string[];
+  /** Heading IDs extracted from built HTML (for deep-linking) */
+  headings?: Array<{ id: string; text: string; level: number }>;
   /** OpenGraph title (if different from <title>) */
   ogTitle?: string;
   /** OpenGraph description */
