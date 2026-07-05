@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CustomTool, SearchOptions, SecurityOptions, WebMCPManifest, WebMCPOptions } from './types.js';
+import type { CustomTool, McpServerCard, SearchOptions, SecurityOptions, WebMCPManifest, WebMCPOptions } from './types.js';
 
-export type { WebMCPOptions, CustomTool, ManifestEntry, WebMCPManifest, SecurityOptions, SearchOptions, ToolAnnotations, ToolContentResponse } from './types.js';
+export type { WebMCPOptions, CustomTool, ManifestEntry, WebMCPManifest, SecurityOptions, SearchOptions, ToolAnnotations, ToolContentResponse, McpServerCard } from './types.js';
 
 /**
  * Astro integration that exposes site content via WebMCP for AI agents.
@@ -93,7 +93,8 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
         logger.info(
           `WebMCP initialized: ${customTools.length} custom tool${customTools.length === 1 ? '' : 's'}, ` +
           `search: ${search.backend}, form scanning: ${formScanning ? 'on' : 'off'}, ` +
-          `skills: ${options.skills !== false ? 'on' : 'off'}`
+          `skills: ${options.skills !== false ? 'on' : 'off'}, ` +
+          `server card: ${options.serverCard !== false ? 'on' : 'off'}`
         );
         logger.info(
           `WebMCP security: maxOutput ${security.maxOutputLength} chars, ` +
@@ -106,6 +107,17 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
       },
 
       'astro:server:setup': ({ server, logger }) => {
+        // Link headers for agent discovery (RFC 8288)
+        server.middlewares.use((_req, res, next) => {
+          const links: string[] = [
+            '</_webmcp/manifest.json>; rel="webmcp"',
+          ];
+          if (options.skills !== false) links.push('</.well-known/skills/index.json>; rel="skills"');
+          if (options.serverCard !== false) links.push('</.well-known/mcp/server-card.json>; rel="mcp-server-card"');
+          res.setHeader('Link', links.join(', '));
+          next();
+        });
+
         server.middlewares.use('/_webmcp/manifest.json', (_req, res) => {
           const manifest: WebMCPManifest = {
             generatedAt: new Date().toISOString(),
@@ -174,6 +186,15 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
           logger.info(`WebMCP skills index: ${skillsIndex.skills.length} skill${skillsIndex.skills.length === 1 ? '' : 's'} → /.well-known/skills/index.json`);
         }
 
+        // MCP Server Card: /.well-known/mcp/server-card.json (SEP-1649)
+        if (options.serverCard !== false) {
+          const serverCard = buildServerCard(siteUrl, options);
+          const cardPath = join(outDir, '.well-known', 'mcp', 'server-card.json');
+          await mkdir(dirname(cardPath), { recursive: true });
+          await writeFile(cardPath, JSON.stringify(serverCard, null, 2));
+          logger.info(`WebMCP server card → /.well-known/mcp/server-card.json`);
+        }
+
         const collSummary = manifest.collections.length
           ? manifest.collections.map(c => `${c.name}(${c.count})`).join(', ')
           : 'none';
@@ -224,6 +245,80 @@ function buildSkillsIndex(
     name: options.skillsName ?? 'WebMCP Tools',
     description: options.skillsDescription ?? `AI-accessible tools for ${base || 'this site'}`,
     skills,
+  };
+}
+
+/** Builds /.well-known/mcp/server-card.json per SEP-1649. */
+function buildServerCard(siteUrl: string | undefined, options: WebMCPOptions): McpServerCard {
+  const base = siteUrl?.replace(/\/$/, '') ?? '';
+
+  const tools: McpServerCard['tools'] = [
+    {
+      name: 'search_content',
+      title: 'Search Content',
+      description: 'Search articles and pages on this site by keyword.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search term' },
+          collection: { type: 'string', description: 'Filter by collection (optional)' },
+          limit: { type: 'number', description: 'Max results (default: 5)' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'list_sections',
+      title: 'List Sections',
+      description: 'List all content sections available on this site.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'go_to',
+      title: 'Go To Page',
+      description: 'Navigate to a page by slug.',
+      inputSchema: {
+        type: 'object',
+        properties: { slug: { type: 'string', description: 'Page slug or path' } },
+        required: ['slug'],
+      },
+    },
+    {
+      name: 'get_page_info',
+      title: 'Get Page Info',
+      description: 'Get metadata about the current page.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+  ];
+
+  for (const tool of options.customTools ?? []) {
+    tools.push({
+      name: tool.name,
+      title: tool.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    });
+  }
+
+  return {
+    $schema: 'https://static.modelcontextprotocol.io/schemas/mcp-server-card/v1.json',
+    version: '1.0',
+    protocolVersion: '2025-06-18',
+    serverInfo: {
+      name: 'astro-webmcp',
+      title: options.serverCardName ?? 'WebMCP Server',
+      version: '1.2.0',
+    },
+    description: options.serverCardDescription ?? `WebMCP tools for ${base || 'this site'}`,
+    documentationUrl: base || undefined,
+    transport: {
+      type: 'webmcp',
+      endpoint: '/_webmcp/manifest.json',
+    },
+    capabilities: {
+      tools: { listChanged: true },
+    },
+    tools,
   };
 }
 

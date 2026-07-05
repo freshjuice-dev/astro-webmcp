@@ -11,6 +11,15 @@ export interface WebMCPOptions {
   /** Search backend configuration for search_content tool */
   search?: SearchOptions;
   /**
+   * Generate /.well-known/mcp/server-card.json for MCP Server Card discovery (SEP-1649).
+   * Set to false to disable. Default: true.
+   */
+  serverCard?: boolean;
+  /** Name for the MCP server card (default: "WebMCP Server") */
+  serverCardName?: string;
+  /** Description for the MCP server card */
+  serverCardDescription?: string;
+  /**
    * Generate /.well-known/skills/index.json for Agent Skills Discovery.
    * Set to false to disable. Default: true.
    * Only generated at build time (static output).
@@ -120,4 +129,37 @@ export interface WebMCPManifest {
   site?: string;
   collections: Array<{ name: string; count: number }>;
   entries: ManifestEntry[];
+}
+
+/**
+ * MCP Server Card per SEP-1649.
+ * Served at /.well-known/mcp/server-card.json for HTTP-based MCP server discovery.
+ * @see https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1649
+ */
+export interface McpServerCard {
+  $schema: string;
+  version: string;
+  protocolVersion: string;
+  serverInfo: {
+    name: string;
+    title?: string;
+    version: string;
+  };
+  description?: string;
+  documentationUrl?: string;
+  transport: {
+    type: string;
+    endpoint: string;
+  };
+  capabilities: {
+    tools?: { listChanged?: boolean };
+    resources?: { subscribe?: boolean; listChanged?: boolean };
+    prompts?: { listChanged?: boolean };
+  };
+  tools: Array<{
+    name: string;
+    title?: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }> | ['dynamic'];
 }
