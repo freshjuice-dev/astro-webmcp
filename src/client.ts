@@ -4,10 +4,12 @@
  *
  * Conforms to the WebMCP spec (webmachinelearning/webmcp) as of 2026-07:
  * - document.modelContext as primary API surface
- * - provideContext() batch registration with registerTool() fallback
+ * - registerTool() per spec; provideContext() fallback for older Chrome previews
  * - AbortController / signal for tool lifecycle management
  * - requestUserInteraction() for state-mutating tools
  * - Structured content response format
+ * - title field on all tools for native UI display
+ * - Re-registration on astro:after-swap (View Transitions)
  *
  * Security applied per Chrome Agent Security Guidelines:
  * - readOnlyHint on all non-mutating tools
@@ -263,7 +265,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 // Main initialization
 // =============================================================================
 
-(async () => {
+async function initWebMCP(): Promise<void> {
   const mc = (document as any).modelContext ?? (navigator as any).modelContext;
   if (!mc?.registerTool) {
     log.debug('modelContext not available — WebMCP not supported in this browser');
@@ -297,6 +299,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 
   tools.push({
     name: 'search_content',
+    title: 'Search Content',
     description: 'Search articles and pages on this site by keyword. Returns title, URL, and description of matching results.',
     annotations: {
       readOnlyHint: true,
@@ -319,6 +322,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 
   tools.push({
     name: 'list_sections',
+    title: 'List Sections',
     description: 'List all content sections (collections) available on this site with item counts.',
     annotations: {
       readOnlyHint: true,
@@ -329,6 +333,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 
   tools.push({
     name: 'go_to',
+    title: 'Go To Page',
     description: 'Navigate to a specific page on this site by its slug.',
     annotations: {
       readOnlyHint: false,
@@ -362,6 +367,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 
   tools.push({
     name: 'get_page_info',
+    title: 'Get Page Info',
     description: 'Get metadata about the current page (title, description, headings, language, word count, canonical URL).',
     annotations: {
       readOnlyHint: true,
@@ -408,6 +414,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
         ) => unknown;
         tools.push({
           name: tool.name,
+          title: tool.name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
           description: tool.description,
           annotations: tool.annotations ?? { readOnlyHint: true },
           inputSchema: tool.inputSchema,
@@ -423,14 +430,17 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
     }
   }
 
-  if (mc.provideContext) {
+  // Spec: registerTool() is the standard API.
+  // provideContext() was removed from spec (PR #205) — kept as fallback for older Chrome previews.
+  const useBatch = typeof mc.provideContext === 'function';
+  if (useBatch) {
     mc.provideContext({ tools }, registerOptions);
   } else {
     for (const tool of tools) {
       mc.registerTool(tool, registerOptions);
     }
   }
-  log.info(`${tools.length} tool${tools.length === 1 ? '' : 's'} registered via ${mc.provideContext ? 'provideContext()' : 'registerTool()'}`);
+  log.info(`${tools.length} tool${tools.length === 1 ? '' : 's'} registered via ${useBatch ? 'provideContext()' : 'registerTool()'}`);
 
   (globalThis as any).__WEBMCP_ABORT__ = () => controller.abort();
 
@@ -440,4 +450,16 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
       log.info(`${formCount} declarative form${formCount === 1 ? '' : 's'} registered as tools`);
     }
   }
-})();
+}
+
+initWebMCP();
+
+// Re-register tools after View Transitions page swap (Astro client-side navigation).
+// Without this, tools disappear after SPA navigation because the old AbortController
+// is gone and the new page hasn't registered tools.
+document.addEventListener('astro:after-swap', () => {
+  if ((globalThis as any).__WEBMCP_ABORT__) {
+    (globalThis as any).__WEBMCP_ABORT__();
+  }
+  initWebMCP();
+});
