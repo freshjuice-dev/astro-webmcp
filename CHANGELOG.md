@@ -2,6 +2,30 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
+## [1.2.0] — 2026-07-05
+
+### Added
+- **Astro 7 support** — peerDependency range widened to `^6.0.0 || ^7.0.0`. Verified against Astro 7.0.6.
+- **Agent Skills Discovery** — generates `/.well-known/skills/index.json` (opt-out via `skills: false`). Includes built-in tools + custom tools.
+- **SSR middleware** — registers `middleware.mjs` when `output !== 'static'` for dynamic manifest serving with route caching support.
+- **Route caching detection** — logs `[route-caching]` when Astro 7 `config.cache` is present.
+- **Heading IDs** — `extractMeta()` extracts `<h1-h6 id="...">` for deep-linking; `get_page_info` returns heading IDs from live DOM.
+- **`<a rel="tag">` extraction** — tags parsed from `<meta keywords>`, `<meta article:tag>`, and `<a rel="tag">`.
+- **`title` field on all tools** — per spec, USVString for native UI display. Custom tools auto-generate title from name.
+- **`outputSchema` on `CustomTool`** — forward-compat placeholder for spec Issue #9.
+- **`ToolContentResponse` type** — exported for consumers.
+- **Dev-only browser logging** — `debug` flag in `__WEBMCP_CONFIG__`, true on dev/preview, false on build. `console.info`/`debug` gated, `console.warn` always visible.
+- **Structured build-time logging** — config summary (tools, search backend, form scanning, skills, security), collection breakdown with counts.
+
+### Changed
+- **`registerTool()` is now the primary API** — `provideContext()` was removed from spec (PR #205). Kept as fallback for older Chrome previews, gated by `typeof` check.
+- **Structured content response** — `safeOutput()` returns `{ content: [{ type: 'text', text }] }` per MCP protocol format.
+- **`AbortController` / `signal`** in registerOptions, `__WEBMCP_ABORT__` for SPA cleanup.
+- **View Transitions support** — `initWebMCP()` extracted to named function, re-registers tools on `astro:after-swap`. Without this, tools disappeared after SPA navigation.
+- `extractMeta()` spreads into entry via `...meta` (conditional fields omitted when empty).
+- Dev manifest sets `Cache-Control: no-cache`.
+- `@vite-ignore` on Orama dynamic import.
+
 ## [1.1.0] — 2026-06-18
 
 ### Added
