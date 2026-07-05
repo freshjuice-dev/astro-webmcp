@@ -1,7 +1,7 @@
 # @freshjuice/astro-webmcp
 
 [![npm version](https://img.shields.io/npm/v/@freshjuice/astro-webmcp?color=orange)](https://www.npmjs.com/package/@freshjuice/astro-webmcp)
-[![Astro](https://img.shields.io/badge/Astro-6+-ff5d01?logo=astro&logoColor=white)](https://astro.build/)
+[![Astro](https://img.shields.io/badge/Astro-6_+_/_7+-ff5d01?logo=astro&logoColor=white)](https://astro.build/)
 [![WebMCP](https://img.shields.io/badge/WebMCP-Chrome_149+-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/ai/webmcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -232,7 +232,7 @@ This integration follows [Chrome Agent Security Guidelines](https://developer.ch
 
 This is a fork of the original [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles), maintained by [FreshJuice](https://freshjuice.dev) with:
 
-- **Fixed script injection** — uses `head-inline` stage for reliable delivery on Astro v6
+- **Fixed script injection** — uses `head-inline` stage for reliable delivery on Astro v6 and v7
 - **Custom tools API** — expose your own domain-specific functionality declaratively in `astro.config.mjs`
 - **Search backends** — Pagefind and Orama full-text search, with automatic fallback
 - **Declarative form scanning** — auto-register annotated `<form>` elements as tools

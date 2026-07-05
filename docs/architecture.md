@@ -50,7 +50,7 @@ Implements the `AstroIntegration` interface with three hooks:
 #### `astro:config:setup`
 
 - Uses `injectScript('head-inline', ...)` to insert the client-side script directly into `<head>` on every page
-- **Why `head-inline`:** Bypasses Vite bundling — more reliable than `'page'` stage on Astro v6, which can drop the script during optimization
+- **Why `head-inline`:** Bypasses Vite bundling — more reliable than `'page'` stage on Astro, which can drop the script during optimization
 - Injects `__WEBMCP_CONFIG__` global with security settings, custom tools, form scanning toggle, and search backend config
 
 #### `astro:server:setup`
@@ -224,7 +224,7 @@ Reference: https://developer.chrome.com/docs/ai/webmcp/imperative-api
 
 ### Why `head-inline` instead of `page`?
 
-- Astro v6's `injectScript('page', ...)` can drop scripts during Vite optimization
+- Astro's `injectScript('page', ...)` can drop scripts during Vite optimization
 - `head-inline` injects directly into `<head>` as a `<script>` tag — guaranteed delivery
 - Same performance characteristics (the script is tiny and exits early on unsupported browsers)
 
