@@ -65,11 +65,19 @@ interface WebMCPClientConfig {
   customTools?: CustomToolConfig[];
   formScanning?: boolean;
   search?: SearchConfig;
+  debug?: boolean;
 }
 
 const CONFIG: WebMCPClientConfig = (globalThis as any).__WEBMCP_CONFIG__ ?? {
   maxOutputLength: 1500,
   sanitizeOutputs: true,
+  debug: false,
+};
+
+const log = {
+  debug: (...args: unknown[]) => { if (CONFIG.debug) console.debug('[astro-webmcp]', ...args); },
+  info: (...args: unknown[]) => { if (CONFIG.debug) console.info('[astro-webmcp]', ...args); },
+  warn: (...args: unknown[]) => console.warn('[astro-webmcp]', ...args),
 };
 
 function truncateOutput(str: string, max: number): string {
@@ -122,7 +130,7 @@ async function searchPagefind(
 ): Promise<ManifestEntry[]> {
   const pf = (window as any).pagefind;
   if (!pf) {
-    console.warn('[astro-webmcp] pagefind not found on window — falling back to manifest search');
+    log.warn('pagefind not found on window — falling back to manifest search');
     return [];
   }
   try {
@@ -135,7 +143,7 @@ async function searchPagefind(
       description: r.excerpt || r.meta?.description || '',
     }));
   } catch (err) {
-    console.warn('[astro-webmcp] Pagefind search failed:', err);
+    log.warn('Pagefind search failed:', err);
     return [];
   }
 }
@@ -146,7 +154,7 @@ async function searchOrama(
 ): Promise<ManifestEntry[]> {
   const oramaIndexUrl = CONFIG.search?.oramaIndexUrl;
   if (!oramaIndexUrl) {
-    console.warn('[astro-webmcp] oramaIndexUrl not configured — falling back to manifest search');
+    log.warn('oramaIndexUrl not configured — falling back to manifest search');
     return [];
   }
   try {
@@ -165,7 +173,7 @@ async function searchOrama(
       description: hit.document.desc || hit.document.description || '',
     }));
   } catch (err) {
-    console.warn('[astro-webmcp] Orama search failed:', err);
+    log.warn('Orama search failed:', err);
     return [];
   }
 }
@@ -258,7 +266,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 (async () => {
   const mc = (document as any).modelContext ?? (navigator as any).modelContext;
   if (!mc?.registerTool) {
-    console.debug('[astro-webmcp] modelContext not available — WebMCP not supported in this browser');
+    log.debug('modelContext not available — WebMCP not supported in this browser');
     return;
   }
 
@@ -266,16 +274,16 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
   try {
     const res = await fetch('/_webmcp/manifest.json');
     if (!res.ok) {
-      console.warn(`[astro-webmcp] manifest fetch failed: HTTP ${res.status}`);
+      log.warn(`manifest fetch failed: HTTP ${res.status}`);
       return;
     }
     manifest = await res.json();
   } catch (err) {
-    console.warn('[astro-webmcp] manifest fetch error:', err);
+    log.warn('manifest fetch error:', err);
     return;
   }
 
-  console.debug(`[astro-webmcp] manifest loaded: ${manifest.entries.length} entries, ${manifest.collections.length} collections`);
+  log.debug(`manifest loaded: ${manifest.entries.length} entries, ${manifest.collections.length} collections`);
 
   const controller = new AbortController();
   const { signal } = controller;
@@ -410,7 +418,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
           },
         });
       } catch (err) {
-        console.warn(`[astro-webmcp] Failed to register custom tool "${tool.name}":`, err);
+        log.warn(`Failed to register custom tool "${tool.name}":`, err);
       }
     }
   }
@@ -422,14 +430,14 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
       mc.registerTool(tool, registerOptions);
     }
   }
-  console.info(`[astro-webmcp] ${tools.length} tool${tools.length === 1 ? '' : 's'} registered via ${mc.provideContext ? 'provideContext()' : 'registerTool()'}`);
+  log.info(`${tools.length} tool${tools.length === 1 ? '' : 's'} registered via ${mc.provideContext ? 'provideContext()' : 'registerTool()'}`);
 
   (globalThis as any).__WEBMCP_ABORT__ = () => controller.abort();
 
   if (CONFIG.formScanning) {
     const formCount = scanDeclarativeForms(mc, registerOptions);
     if (formCount > 0) {
-      console.info(`[astro-webmcp] ${formCount} declarative form${formCount === 1 ? '' : 's'} registered as tools`);
+      log.info(`${formCount} declarative form${formCount === 1 ? '' : 's'} registered as tools`);
     }
   }
 })();

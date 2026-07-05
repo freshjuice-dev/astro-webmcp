@@ -52,8 +52,9 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
     name: '@freshjuice/astro-webmcp',
 
     hooks: {
-      'astro:config:setup': ({ config, injectScript, logger, addMiddleware }) => {
+      'astro:config:setup': ({ config, command, injectScript, logger, addMiddleware }) => {
         siteUrl = config.site;
+        const isDev = command === 'dev' || command === 'preview';
 
         // Feature detection: route caching (v7 stable, v6 experimental)
         const cfg = config as unknown as Record<string, unknown>;
@@ -69,7 +70,7 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
         }
 
         const configScript =
-          `globalThis.__WEBMCP_CONFIG__=${JSON.stringify({ ...security, customTools, formScanning, search })};`;
+          `globalThis.__WEBMCP_CONFIG__=${JSON.stringify({ ...security, customTools, formScanning, search, debug: isDev })};`;
 
         let clientCode: string;
         try {
@@ -80,7 +81,23 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
 
         // head-inline bypasses Vite bundling — reliable on Astro v6 and v7.
         injectScript('head-inline', configScript + clientCode);
-        logger.info('WebMCP tools registered with security annotations');
+
+        const features: string[] = [];
+        if (hasRouteCaching) features.push('route-caching');
+        if (isSSR) features.push('ssr-manifest');
+        logger.info(
+          `WebMCP initialized: ${customTools.length} custom tool${customTools.length === 1 ? '' : 's'}, ` +
+          `search: ${search.backend}, form scanning: ${formScanning ? 'on' : 'off'}, ` +
+          `skills: ${options.skills !== false ? 'on' : 'off'}`
+        );
+        logger.info(
+          `WebMCP security: maxOutput ${security.maxOutputLength} chars, ` +
+          `sanitize ${security.sanitizeOutputs ? 'on' : 'off'}, ` +
+          `exposedTo ${security.exposedTo.length ? security.exposedTo.join(', ') : 'same-origin'}`
+        );
+        if (features.length) {
+          logger.info(`WebMCP v7 features: ${features.join(', ')}`);
+        }
       },
 
       'astro:server:setup': ({ server, logger }) => {
@@ -97,7 +114,7 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
           res.setHeader('Cache-Control', 'no-cache');
           res.end(JSON.stringify(manifest));
         });
-        logger.info('WebMCP dev manifest available at /_webmcp/manifest.json');
+        logger.info('WebMCP dev manifest (stub) at /_webmcp/manifest.json — full manifest generated at build time');
       },
 
       'astro:build:done': async ({ dir, pages, logger }) => {
@@ -149,10 +166,13 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
           const skillsPath = join(outDir, '.well-known', 'skills', 'index.json');
           await mkdir(dirname(skillsPath), { recursive: true });
           await writeFile(skillsPath, JSON.stringify(skillsIndex, null, 2));
-          logger.info('Agent Skills Discovery: /.well-known/skills/index.json');
+          logger.info(`WebMCP skills index: ${skillsIndex.skills.length} skill${skillsIndex.skills.length === 1 ? '' : 's'} → /.well-known/skills/index.json`);
         }
 
-        logger.info(`WebMCP manifest generated: ${entries.length} entries, ${manifest.collections.length} collections`);
+        const collSummary = manifest.collections.length
+          ? manifest.collections.map(c => `${c.name}(${c.count})`).join(', ')
+          : 'none';
+        logger.info(`WebMCP manifest: ${entries.length} entries, ${manifest.collections.length} collection${manifest.collections.length === 1 ? '' : 's'} [${collSummary}]`);
       },
     },
   };
