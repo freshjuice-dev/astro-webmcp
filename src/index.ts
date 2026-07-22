@@ -307,7 +307,7 @@ function buildServerCard(siteUrl: string | undefined, options: WebMCPOptions): M
     serverInfo: {
       name: 'astro-webmcp',
       title: options.serverCardName ?? 'WebMCP Server',
-      version: '1.2.0',
+      version: '1.3.0',
     },
     description: options.serverCardDescription ?? `WebMCP tools for ${base || 'this site'}`,
     documentationUrl: base || undefined,

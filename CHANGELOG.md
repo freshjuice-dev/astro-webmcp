@@ -2,7 +2,7 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
-## [Unreleased]
+## [1.3.0] — 2026-07-22
 
 ### Changed
 - **Declarative form scanning supports spec attributes** — `toolname` / `tooldescription` on `<form>`, `toolparamdescription` on fields, per the [WebMCP Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api) (Chrome 149+ origin trial). Legacy `name` / `description` attributes are still scanned — the spec is in flux, so both schemes work. Forms are deduped by tool name to avoid double registration when the browser registers them natively.
