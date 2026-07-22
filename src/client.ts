@@ -3,12 +3,13 @@
  * Loads the manifest and registers WebMCP tools via document.modelContext.
  *
  * Conforms to the WebMCP spec (webmachinelearning/webmcp) as of 2026-07:
- * - document.modelContext as primary API surface
+ * - document.modelContext as primary API surface (Chrome 149+)
  * - registerTool() per spec; provideContext() fallback for older Chrome previews
  * - AbortController / signal for tool lifecycle management
  * - requestUserInteraction() for state-mutating tools
  * - Structured content response format
  * - title field on all tools for native UI display
+ * - Declarative form scanning via toolname/tooldescription/toolparamdescription
  * - Re-registration on astro:after-swap (View Transitions)
  *
  * Security applied per Chrome Agent Security Guidelines:
@@ -206,11 +207,20 @@ async function searchContent(
 // =============================================================================
 
 function scanDeclarativeForms(mc: any, registerOptions: any): number {
-  const forms = document.querySelectorAll<HTMLFormElement>('form[name][description]');
+  // Spec (Chrome 149+ origin trial): toolname/tooldescription on <form>,
+  // toolparamdescription on fields. Legacy scheme name/description also accepted —
+  // spec is still in flux, so support both. Dedupe by tool name.
+  // https://developer.chrome.com/docs/ai/webmcp/declarative-api
+  const forms = document.querySelectorAll<HTMLFormElement>(
+    'form[toolname][tooldescription], form[name][description]',
+  );
+  const seen = new Set<string>();
   let count = 0;
   for (const form of forms) {
-    const name = form.getAttribute('name')!;
-    const description = form.getAttribute('description')!;
+    const name = (form.getAttribute('toolname') ?? form.getAttribute('name'))!;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const description = (form.getAttribute('tooldescription') ?? form.getAttribute('description'))!;
 
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
@@ -218,7 +228,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
     for (const input of inputs) {
       const fieldName = input.getAttribute('name')!;
       const type = input.getAttribute('type') || 'text';
-      const fieldDesc = input.getAttribute('title') || input.getAttribute('aria-label') || fieldName;
+      const fieldDesc = input.getAttribute('toolparamdescription') || input.getAttribute('title') || input.getAttribute('aria-label') || fieldName;
       const isRequired = input.hasAttribute('required');
 
       let schemaType = 'string';
