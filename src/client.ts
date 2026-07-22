@@ -416,6 +416,17 @@ async function initWebMCP(): Promise<void> {
 
   if (CONFIG.customTools?.length) {
     for (const tool of CONFIG.customTools) {
+      // Chrome-recommended character budgets (dev only):
+      // https://developer.chrome.com/docs/ai/webmcp/secure-tools#set_character_budgets
+      if (CONFIG.debug) {
+        if (tool.name.length > 30) log.warn(`tool "${tool.name}": name ${tool.name.length} chars (recommended ≤30)`);
+        if (tool.description.length > 500) log.warn(`tool "${tool.name}": description ${tool.description.length} chars (recommended ≤500)`);
+        const props = (tool.inputSchema as any)?.properties ?? {};
+        for (const [pName, p] of Object.entries(props)) {
+          const d = (p as any)?.description;
+          if (typeof d === 'string' && d.length > 150) log.warn(`tool "${tool.name}" param "${pName}": description ${d.length} chars (recommended ≤150)`);
+        }
+      }
       try {
         // eslint-disable-next-line no-new-func
         const executeFn = new Function('params', 'safeOutput', tool.executeBody) as (
