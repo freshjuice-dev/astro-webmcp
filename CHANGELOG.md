@@ -8,6 +8,10 @@ All notable changes to `@freshjuice/astro-webmcp` will be documented in this fil
 - **Declarative form scanning supports spec attributes** — `toolname` / `tooldescription` on `<form>`, `toolparamdescription` on fields, per the [WebMCP Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api) (Chrome 149+ origin trial). Legacy `name` / `description` attributes are still scanned — the spec is in flux, so both schemes work. Forms are deduped by tool name to avoid double registration when the browser registers them natively.
 - **Docs: Chrome flag updated** — `chrome://flags#enable-webmcp-testing` (was `#webmcp-for-testing`); examples use `document.modelContext` (primary surface per current [Imperative API docs](https://developer.chrome.com/docs/ai/webmcp/imperative-api)).
 
+### Added
+- **Character budget warnings (dev only)** — custom tools exceeding [Chrome's recommended budgets](https://developer.chrome.com/docs/ai/webmcp/secure-tools#set_character_budgets) (name ≤30, description ≤500, param description ≤150 chars) log a `console.warn` in dev/preview.
+- **Docs: `:tool-form-active` / `:tool-submit-active`** — CSS pseudo-classes for styling agent-active native declarative forms.
+
 ## [1.2.0] — 2026-07-05
 
 ### Added

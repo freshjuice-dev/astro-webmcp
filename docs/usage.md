@@ -177,6 +177,21 @@ When `formScanning: true`, annotated `<form>` elements are auto-registered as We
 
 On Chrome 149+ the browser registers spec-annotated forms natively; the scanner polyfills the rest and dedupes by tool name. The agent sees these forms as callable tools alongside the built-in ones.
 
+#### Styling agent-active forms
+
+When an agent fills a natively-registered form, Chrome applies pseudo-classes you can style ([Declarative API docs](https://developer.chrome.com/docs/ai/webmcp/declarative-api#modify_focus_indicator)):
+
+- `:tool-form-active` — on the `<form>` while the agent is working on it
+- `:tool-submit-active` — on the submit button
+
+```css
+form:tool-form-active {
+  outline: 2px dashed blue;
+}
+```
+
+They deactivate on submit, cancel, or form reset. Only applies to forms the browser registered natively (spec attributes) — polyfilled forms use `requestSubmit()` directly.
+
 ## How It Works in the Browser
 
 After build, every page includes a lightweight script (~3KB) that:
