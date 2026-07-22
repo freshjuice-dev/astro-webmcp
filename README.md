@@ -90,7 +90,7 @@ webmcp({
 |--------|------|---------|-------------|
 | `collections` | `string[]` | `undefined` (all) | List of collections to include in the manifest |
 | `customTools` | `CustomTool[]` | `[]` | Domain-specific tools to register alongside built-in ones |
-| `formScanning` | `boolean` | `false` | Auto-register `<form name="..." description="...">` elements as tools |
+| `formScanning` | `boolean` | `false` | Auto-register `<form toolname="..." tooldescription="...">` elements as tools |
 | `search.backend` | `'manifest' \| 'pagefind' \| 'orama'` | `'manifest'` | Search backend for `search_content` |
 | `search.oramaIndexUrl` | `string` | — | URL of pre-built Orama index (required for `'orama'`) |
 | `search.pagefindBundlePath` | `string` | `'/pagefind/'` | Pagefind bundle path |
@@ -120,16 +120,23 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 
 ### Declarative Form Scanning
 
-When `formScanning: true`, any `<form>` element with `name` and `description` attributes is auto-registered as a WebMCP tool:
+When `formScanning: true`, annotated `<form>` elements are auto-registered as WebMCP tools. Both the current spec attributes ([Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api), Chrome 149+) and the legacy scheme are supported:
 
 ```html
+<!-- spec attributes (preferred) -->
+<form toolname="search_products" tooldescription="Search product catalog by keyword">
+  <input name="query" type="text" required toolparamdescription="Search term">
+  <button type="submit">Search</button>
+</form>
+
+<!-- legacy attributes (still works) -->
 <form name="search_products" description="Search product catalog by keyword">
   <input name="query" type="text" required>
   <button type="submit">Search</button>
 </form>
 ```
 
-The integration builds the input schema from form fields and submits the form when the agent calls the tool. This implements the spec's declarative API — no JS required.
+The integration builds the input schema from form fields and submits the form when the agent calls the tool. On Chrome 149+ the browser registers spec-annotated forms natively; the scanner polyfills the rest and dedupes by tool name.
 
 ---
 
@@ -141,7 +148,7 @@ The integration builds the input schema from form fields and submits the form wh
 | `list_sections` | List available content sections with item counts |
 | `go_to` | Navigate to a specific page by slug (prompts user consent via `requestUserInteraction`) |
 | `get_page_info` | Get current page metadata (title, description, headings, language, word count, canonical URL) |
-| *declarative forms* | Any `<form name="..." description="...">` when `formScanning: true` |
+| *declarative forms* | Any `<form toolname="..." tooldescription="...">` (or legacy `name`/`description`) when `formScanning: true` |
 | *your custom tools* | Whatever you define via `customTools` |
 
 ---
@@ -168,7 +175,7 @@ The integration builds the input schema from form fields and submits the form wh
 │       │                                                  │
 │       ├─ fetch('/_webmcp/manifest.json')                 │
 │       │                                                  │
-│       ├─ navigator.modelContext.provideContext()         │
+│       ├─ document.modelContext.registerTool()            │
 │       │    ├─ search_content (manifest/pagefind/orama)   │
 │       │    ├─ list_sections                              │
 │       │    ├─ go_to (+ requestUserInteraction)           │
@@ -187,7 +194,7 @@ WebMCP is currently available in Chrome 149+ via one of two methods:
 
 ### Development: Chrome Flag
 
-1. Open `chrome://flags#webmcp-for-testing`
+1. Open `chrome://flags#enable-webmcp-testing`
 2. Enable the flag
 3. Restart Chrome
 

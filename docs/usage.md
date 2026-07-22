@@ -68,7 +68,7 @@ webmcp({
 |--------|------|---------|-------------|
 | `collections` | `string[]` | `undefined` (all) | Collections to include in the manifest |
 | `customTools` | `CustomTool[]` | `[]` | Domain-specific tools to register |
-| `formScanning` | `boolean` | `false` | Auto-register `<form name="..." description="...">` elements as tools |
+| `formScanning` | `boolean` | `false` | Auto-register `<form toolname="..." tooldescription="...">` elements as tools |
 | `search.backend` | `'manifest' \| 'pagefind' \| 'orama'` | `'manifest'` | Search backend for `search_content` |
 | `search.oramaIndexUrl` | `string` | — | URL of pre-built Orama index (required for `'orama'`) |
 | `search.pagefindBundlePath` | `string` | `'/pagefind/'` | Pagefind bundle path |
@@ -159,22 +159,29 @@ export default defineConfig({
 
 ### Declarative Form Scanning
 
-When `formScanning: true`, any `<form>` element with `name` and `description` attributes is auto-registered as a WebMCP tool. The integration builds the input schema from form fields and submits the form when the agent calls it.
+When `formScanning: true`, annotated `<form>` elements are auto-registered as WebMCP tools. The integration builds the input schema from form fields and submits the form when the agent calls it. Both the current spec attributes ([Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api), Chrome 149+) and the legacy scheme are supported:
 
 ```html
+<!-- spec attributes (preferred) -->
+<form toolname="search_products" tooldescription="Search product catalog by keyword">
+  <input name="query" type="text" required toolparamdescription="Search term">
+  <button type="submit">Search</button>
+</form>
+
+<!-- legacy attributes (still works) -->
 <form name="search_products" description="Search product catalog by keyword">
   <input name="query" type="text" required>
   <button type="submit">Search</button>
 </form>
 ```
 
-This implements the spec's declarative API — no JS required. The agent sees these forms as callable tools alongside the built-in ones.
+On Chrome 149+ the browser registers spec-annotated forms natively; the scanner polyfills the rest and dedupes by tool name. The agent sees these forms as callable tools alongside the built-in ones.
 
 ## How It Works in the Browser
 
 After build, every page includes a lightweight script (~3KB) that:
 
-1. Checks if the browser supports WebMCP (`'modelContext' in navigator`)
+1. Checks if the browser supports WebMCP (`'modelContext' in document`)
 2. If not supported, exits immediately — zero impact
 3. If supported, loads `/_webmcp/manifest.json` and registers tools via `provideContext()` (batch) or `registerTool()` (individual)
 
@@ -250,7 +257,7 @@ Returns `{ title, description, headings, url, lang, canonical, wordCount }`.
 
 ### 1. Enable WebMCP in Chrome
 
-Navigate to `chrome://flags#webmcp-for-testing` → **Enabled** → Relaunch.
+Navigate to `chrome://flags#enable-webmcp-testing` → **Enabled** → Relaunch.
 
 ### 2. Install the test extension
 
@@ -261,7 +268,7 @@ Navigate to `chrome://flags#webmcp-for-testing` → **Enabled** → Relaunch.
 Open DevTools → Console:
 
 ```js
-const tools = await navigator.modelContext.getTools();
+const tools = await document.modelContext.getTools();
 console.log(tools);
 // [{name: "search_content", ...}, {name: "list_sections", ...}, ...]
 ```
@@ -269,9 +276,9 @@ console.log(tools);
 ### 4. Test a tool manually
 
 ```js
-const tools = await navigator.modelContext.getTools();
+const tools = await document.modelContext.getTools();
 const searchTool = tools.find(t => t.name === 'search_content');
-const result = await navigator.modelContext.executeTool(searchTool, '{"query": "astro"}');
+const result = await document.modelContext.executeTool(searchTool, '{"query": "astro"}');
 console.log(result);
 ```
 
@@ -283,8 +290,8 @@ For simple forms, you can use the declarative approach instead of `customTools`.
 ---
 // src/pages/contact.astro
 ---
-<form name="send_message"
-      description="Send a contact message."
+<form toolname="send_message"
+      tooldescription="Send a contact message."
       action="/api/contact">
   <label for="email">Email</label>
   <input type="email" name="email" required>
@@ -361,9 +368,9 @@ The token is domain-scoped — it only works on the origin you registered. Token
 
 ### Tools don't appear
 
-1. Verify `chrome://flags#webmcp-for-testing` is enabled (dev) or your origin trial `<meta>` tag is present (production)
+1. Verify `chrome://flags#enable-webmcp-testing` is enabled (dev) or your origin trial `<meta>` tag is present (production)
 2. Check Network tab — `/_webmcp/manifest.json` should return 200
-3. In Console, check `'modelContext' in navigator` → should be `true`
+3. In Console, check `'modelContext' in document` → should be `true`
 
 ### Origin trial token not working
 

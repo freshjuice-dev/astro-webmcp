@@ -22,7 +22,7 @@
 │       │                                                  │
 │       ├─ fetch('/_webmcp/manifest.json')                 │
 │       │                                                  │
-│       ├─ navigator.modelContext.provideContext()         │
+│       ├─ document.modelContext.registerTool()            │
 │       │    ├── search_content (3 backends)               │
 │       │    ├── list_sections                             │
 │       │    ├── go_to (+ requestUserInteraction)          │
@@ -149,25 +149,26 @@ astro.config.mjs                    Build time
                                     new Function(params, safeOutput, executeBody)
                                           │
                                           ▼
-                                    navigator.modelContext.provideContext()
+                                    document.modelContext.registerTool()
 ```
 
 Each custom tool's `executeBody` is compiled via `new Function(params, safeOutput, body)` — it receives the tool's input params and the `safeOutput` helper (for sanitization + truncation).
 
 ### 6. Declarative Form Scanning
 
-When `formScanning: true`, the client script scans the DOM for `<form>` elements with `name` and `description` attributes:
+When `formScanning: true`, the client script scans the DOM for `<form>` elements with `toolname`/`tooldescription` (spec) or `name`/`description` (legacy) attributes:
 
 ```
 DOM scan
-  querySelectorAll('form[name][description]')
+  querySelectorAll('form[toolname][tooldescription], form[name][description]')
        │
-       ├─ Build inputSchema from form fields (name, type, required)
-       ├─ Register tool via navigator.modelContext.registerTool()
+       ├─ Build inputSchema from form fields (name, type, required, toolparamdescription)
+       ├─ Dedupe by tool name (browser may register spec forms natively)
+       ├─ Register tool via document.modelContext.registerTool()
        └─ execute: fill fields → form.requestSubmit()
 ```
 
-This implements the spec's declarative API — the simplest path to WebMCP. No JS required in the form markup, just `name` and `description` attributes.
+This polyfills the spec's [Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api) for browsers without native support. On Chrome 149+ the browser registers spec-annotated forms natively. No JS required in the form markup — just the annotation attributes.
 
 ### 7. Security Layer
 
@@ -186,9 +187,9 @@ All tools apply Chrome Agent Security Guidelines:
 
 | API | Usage |
 |-----|-------|
-| `navigator.modelContext.provideContext()` | Batch-registers all tools at once (spec-preferred) |
-| `navigator.modelContext.registerTool()` | Fallback individual registration |
-| `navigator.modelContext.requestUserInteraction()` | User consent for `go_to` navigation |
+| `document.modelContext.registerTool()` | Registers each tool (spec API) |
+| `document.modelContext.provideContext()` | Batch fallback for older Chrome previews (removed from spec, PR #205) |
+| `document.modelContext.requestUserInteraction()` | User consent for `go_to` navigation |
 | `inputSchema` (JSON Schema) | Defines typed parameters for agents |
 | `execute` (async function) | Logic executed when agent calls the tool |
 
