@@ -2,6 +2,15 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
+## [1.4.0] — 2026-07-31
+
+### Added
+- **`toolautosubmit` support** — declarative forms with the `toolautosubmit` attribute auto-submit when an agent calls them; forms without it prefill fields and let the user click submit. Matches [Chrome's declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api#submit_the_form).
+
+### Fixed
+- **`toolparamdescription` fallback chain** — now follows Chrome's order: `toolparamdescription` → `<label for>` text → wrapping `<label>` text → `aria-description` → `title` → field name. Previously used `title` → `aria-label` → field name, missing the `<label>` and `aria-description` steps.
+- **`<select>` schema generation** — `<select>` fields now generate `anyOf` with `const`+`title` per `<option>` plus `enum` array, matching Chrome's JSON Schema output. Previously emitted plain `type: 'string'` with no option metadata.
+
 ## [1.3.0] — 2026-07-22
 
 ### Changed

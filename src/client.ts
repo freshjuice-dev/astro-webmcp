@@ -206,10 +206,46 @@ async function searchContent(
 // Declarative form scanning
 // =============================================================================
 
+function getLabelDesc(el: HTMLElement): string {
+  // Chrome: toolparamdescription → <label> content → aria-description
+  const explicit = el.getAttribute('toolparamdescription');
+  if (explicit) return explicit;
+  // Associated <label for="id">
+  if (el.id) {
+    const label = document.querySelector<HTMLLabelElement>(`label[for="${el.id}"]`);
+    if (label?.textContent?.trim()) return label.textContent.trim();
+  }
+  // Wrapping <label>
+  const parent = el.closest('label');
+  if (parent?.textContent?.trim()) return parent.textContent.trim();
+  // aria-description (Chrome's third fallback)
+  if (el.getAttribute('aria-description')) return el.getAttribute('aria-description')!;
+  // Extra fallbacks beyond Chrome's chain
+  if (el.getAttribute('title')) return el.getAttribute('title')!;
+  return el.getAttribute('name') || '';
+}
+
+function selectToSchema(sel: HTMLSelectElement, desc: string): Record<string, unknown> {
+  // Chrome: anyOf with const+title per <option>, plus enum array
+  const options = Array.from(sel.querySelectorAll('option'));
+  const enumValues = options.map(o => o.value || o.textContent?.trim() || '');
+  const anyOf = options.map(o => ({
+    type: 'string',
+    const: o.value || o.textContent?.trim() || '',
+    title: o.textContent?.trim() || undefined,
+  }));
+  return {
+    type: 'string',
+    anyOf: anyOf.filter(o => o.const),
+    enum: enumValues.filter(Boolean),
+    description: desc,
+  };
+}
+
 function scanDeclarativeForms(mc: any, registerOptions: any): number {
-  // Spec (Chrome 149+ origin trial): toolname/tooldescription on <form>,
-  // toolparamdescription on fields. Legacy scheme name/description also accepted —
-  // spec is still in flux, so support both. Dedupe by tool name.
+  // Chrome 149+ origin trial: toolname/tooldescription on <form>,
+  // toolparamdescription on fields, toolautosubmit for auto-submission.
+  // Legacy name/description also accepted — spec is in flux, support both.
   // https://developer.chrome.com/docs/ai/webmcp/declarative-api
   const forms = document.querySelectorAll<HTMLFormElement>(
     'form[toolname][tooldescription], form[name][description]',
@@ -221,21 +257,25 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
     if (seen.has(name)) continue;
     seen.add(name);
     const description = (form.getAttribute('tooldescription') ?? form.getAttribute('description'))!;
+    const autoSubmit = form.hasAttribute('toolautosubmit');
 
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
-    const inputs = form.querySelectorAll('input[name], select[name], textarea[name]');
-    for (const input of inputs) {
-      const fieldName = input.getAttribute('name')!;
-      const type = input.getAttribute('type') || 'text';
-      const fieldDesc = input.getAttribute('toolparamdescription') || input.getAttribute('title') || input.getAttribute('aria-label') || fieldName;
-      const isRequired = input.hasAttribute('required');
+    const fields = form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input[name], select[name], textarea[name]');
+    for (const field of fields) {
+      const fieldName = field.getAttribute('name')!;
+      const desc = getLabelDesc(field);
+      const isRequired = field.hasAttribute('required');
 
-      let schemaType = 'string';
-      if (type === 'number' || type === 'range') schemaType = 'number';
-      if (type === 'checkbox') schemaType = 'boolean';
-
-      properties[fieldName] = { type: schemaType, description: fieldDesc };
+      if (field instanceof HTMLSelectElement) {
+        properties[fieldName] = selectToSchema(field, desc);
+      } else {
+        let schemaType = 'string';
+        const type = field.getAttribute('type') || 'text';
+        if (type === 'number' || type === 'range') schemaType = 'number';
+        if (type === 'checkbox') schemaType = 'boolean';
+        properties[fieldName] = { type: schemaType, description: desc };
+      }
       if (isRequired) required.push(fieldName);
     }
 
@@ -260,8 +300,8 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
               }
             }
           }
-          form.requestSubmit();
-          return safeOutput({ submitted: true, form: name });
+          if (autoSubmit) form.requestSubmit();
+          return safeOutput({ submitted: autoSubmit, form: name });
         },
       },
       registerOptions,
