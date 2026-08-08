@@ -1,5 +1,6 @@
 # @freshjuice/astro-webmcp
 
+> ⚠️ PRIVATE REPOSITORY — Proprietary and confidential. See [LICENSE](LICENSE).
 [![npm version](https://img.shields.io/npm/v/@freshjuice/astro-webmcp?color=orange)](https://www.npmjs.com/package/@freshjuice/astro-webmcp)
 [![Astro](https://img.shields.io/badge/Astro-6_+_/_7+-ff5d01?logo=astro&logoColor=white)](https://astro.build/)
 [![WebMCP](https://img.shields.io/badge/WebMCP-Chrome_149+-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/ai/webmcp)
