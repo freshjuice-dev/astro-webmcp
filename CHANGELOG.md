@@ -2,6 +2,11 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
+## [1.5.0] — 2026-08-13
+
+### Added
+- **Dev-mode tool-name validation** — custom tools whose `name` doesn't match the spec charset (`[a-zA-Z0-9_.-]`, 1–128 chars, spec §3) log a `console.warn` in dev/preview. Chrome rejects invalid names silently at `registerTool()`.
+
 ## [1.4.0] — 2026-07-31
 
 ### Added

@@ -459,6 +459,8 @@ async function initWebMCP(): Promise<void> {
       // Chrome-recommended character budgets (dev only):
       // https://developer.chrome.com/docs/ai/webmcp/secure-tools#set_character_budgets
       if (CONFIG.debug) {
+        // Spec §3: name must be 1–128 chars, [a-zA-Z0-9_.-] only — Chrome rejects others silently.
+        if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(tool.name)) log.warn(`tool "${tool.name}": name must match [a-zA-Z0-9_.-] and be 1–128 chars (spec §3)`);
         if (tool.name.length > 30) log.warn(`tool "${tool.name}": name ${tool.name.length} chars (recommended ≤30)`);
         if (tool.description.length > 500) log.warn(`tool "${tool.name}": description ${tool.description.length} chars (recommended ≤500)`);
         const props = (tool.inputSchema as any)?.properties ?? {};
