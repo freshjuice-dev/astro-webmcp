@@ -2,9 +2,9 @@
  * Client-side script injected into every page.
  * Loads the manifest and registers WebMCP tools via document.modelContext.
  *
- * Conforms to the WebMCP spec (webmachinelearning/webmcp) as of 2026-07:
- * - document.modelContext as primary API surface (Chrome 149+)
- * - registerTool() per spec; provideContext() fallback for older Chrome previews
+ * Conforms to the WebMCP spec (webmachinelearning/webmcp) as of 2026-08:
+ * - document.modelContext as primary API surface (Chrome 149+ origin trial, extended through 156)
+ * - registerTool() per spec; provideContext() was removed from the spec (PR #205)
  * - AbortController / signal for tool lifecycle management
  * - requestUserInteraction() for state-mutating tools
  * - Structured content response format
@@ -471,9 +471,10 @@ async function initWebMCP(): Promise<void> {
       }
       try {
         // eslint-disable-next-line no-new-func
-        const executeFn = new Function('params', 'safeOutput', tool.executeBody) as (
+        const executeFn = new Function('params', 'safeOutput', 'signal', tool.executeBody) as (
           params: Record<string, unknown>,
           so: typeof safeOutput,
+          signal: AbortSignal,
         ) => unknown;
         tools.push({
           name: tool.name,
@@ -483,7 +484,7 @@ async function initWebMCP(): Promise<void> {
           inputSchema: tool.inputSchema,
           ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
           execute: async (params: Record<string, unknown>) => {
-            const result = executeFn(params, safeOutput);
+            const result = executeFn(params, safeOutput, signal);
             return result instanceof Promise ? await result : result;
           },
         });
@@ -493,17 +494,11 @@ async function initWebMCP(): Promise<void> {
     }
   }
 
-  // Spec: registerTool() is the standard API.
-  // provideContext() was removed from spec (PR #205) — kept as fallback for older Chrome previews.
-  const useBatch = typeof mc.provideContext === 'function';
-  if (useBatch) {
-    mc.provideContext({ tools }, registerOptions);
-  } else {
-    for (const tool of tools) {
-      mc.registerTool(tool, registerOptions);
-    }
+  // Spec: registerTool() is the standard API (Chrome 149+ has no provideContext).
+  for (const tool of tools) {
+    mc.registerTool(tool, registerOptions);
   }
-  log.info(`${tools.length} tool${tools.length === 1 ? '' : 's'} registered via ${useBatch ? 'provideContext()' : 'registerTool()'}`);
+  log.info(`${tools.length} tool${tools.length === 1 ? '' : 's'} registered`);
 
   (globalThis as any).__WEBMCP_ABORT__ = () => controller.abort();
 

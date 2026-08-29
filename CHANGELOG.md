@@ -2,6 +2,15 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
+## [1.6.0] — 2026-08-29
+
+### Added
+- **`signal` in custom tool `executeBody`** — per spec PR #247 (Aug 2026), tool `execute` receives an `AbortSignal` second argument for cancellation. Custom tool bodies can now accept it as a third parameter: `executeBody: \`await fetch(url, { signal }); ...\``. Pass it to `fetch()` for long-running requests so agent/user cancellation stops the work.
+
+### Changed
+- **Removed dead `provideContext()` fallback** — no Chrome build ever shipped both APIs; Chrome 149+ only has `registerTool()`. Spec removed `provideContext` in PR #205 (June 2026).
+- **Docs: Origin Trial window updated** — Chrome 149–156 (desktop, Android, WebView) per Chrome Platform Status (updated 2026-08-12).
+
 ## [1.5.0] — 2026-08-13
 
 ### Added

@@ -105,7 +105,7 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 - `name` — unique tool identifier
 - `description` — natural language description for AI agents
 - `inputSchema` — JSON Schema for the tool's parameters
-- `executeBody` — function body (runs in browser). Receives `params` and `safeOutput`. Must return data or a Promise.
+- `executeBody` — function body (runs in browser). Receives `params`, `safeOutput`, and `signal` (AbortSignal — pass to `fetch()` for cancellation, per spec PR #247). Must return data or a Promise.
 - `annotations` — optional security hints (`readOnlyHint`, `untrustedContentHint`)
 
 ### Search Backends
@@ -190,7 +190,7 @@ The integration builds the input schema from form fields and submits the form wh
 
 ## Browser Support
 
-WebMCP is currently available in Chrome 149+ via one of two methods:
+WebMCP is currently in Origin Trial on Chrome 149–156 (desktop, Android, WebView) via one of two methods:
 
 ### Development: Chrome Flag
 
