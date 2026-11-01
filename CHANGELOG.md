@@ -2,6 +2,26 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
+## [1.7.0] - 2026-11-01
+
+### Added
+- Optional custom tool titles and `consequentialHint` / `debugging` annotations.
+- Async custom tool bodies, including `await`, with the existing `params`, `safeOutput`, and `signal` variables.
+- Regression tests and a real Astro static-site build through `npm test`.
+
+### Fixed
+- Custom tools receive the execution's cancellation signal, not the registration-lifetime signal. Already-aborted calls cannot start tool bodies.
+- Await registration and roll back integration-owned tools on failure, including scanned forms. Cancel stale initialization during Astro navigation.
+- Skip experimental native form tools discovered in the current window instead of registering them twice.
+- Validate search arguments and same-origin navigation targets; check cancellation before navigation commits.
+- Escape inline configuration, isolate client bindings, enforce small output budgets, and keep server-card versions in sync with the package.
+
+### Changed
+- Custom tools default to `readOnlyHint: false`; explicitly mark non-mutating custom tools as read-only.
+- Remove the outdated duplicate client fallback. A missing packaged client now fails the build.
+- Update Astro to 7.4.4, Node types to 26.6.6, and transitive build dependencies. Keep TypeScript on 5.9.3.
+- Refresh developer documentation against Chrome's October guidance and distinguish experimental forms, registration cleanup, execution cancellation, and application-owned security controls.
+
 ## [1.6.0] — 2026-08-29
 
 ### Added
