@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "build": "tsc && cp src/middleware.mjs dist/middleware.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

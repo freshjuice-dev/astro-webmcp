@@ -6,7 +6,7 @@ export interface WebMCPOptions {
   customTools?: CustomTool[];
   /** Security options */
   security?: SecurityOptions;
-  /** Enable declarative form scanning — auto-register annotated <form> elements as tools */
+  /** Opt-in compatibility scanner for experimental form annotations. */
   formScanning?: boolean;
   /** Search backend configuration for search_content tool */
   search?: SearchOptions;
@@ -71,13 +71,10 @@ export interface SecurityOptions {
 /** User-defined custom tool */
 export interface CustomTool {
   name: string;
+  title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /**
-   * Optional output schema (spec draft, Issue #9).
-   * Declares the structure of the tool's return value for agent validation.
-   * Not yet enforced by Chrome — included for forward compatibility.
-   */
+  /** Compatibility metadata; not part of the current WebMCP tool dictionary. */
   outputSchema?: Record<string, unknown>;
   /** Serialized execute function body (runs in browser) */
   executeBody: string;
@@ -91,12 +88,10 @@ export interface ToolAnnotations {
   readOnlyHint?: boolean;
   /** Output may contain untrusted content (UGC, external data) */
   untrustedContentHint?: boolean;
+  consequentialHint?: boolean;
+  debugging?: boolean;
 }
 
-/**
- * Structured content response per WebMCP spec.
- * Tools return content as typed parts (currently only "text").
- */
 export interface ToolContentResponse {
   content: Array<{ type: string; text: string }>;
 }

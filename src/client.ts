@@ -1,30 +1,3 @@
-/**
- * Client-side script injected into every page.
- * Loads the manifest and registers WebMCP tools via document.modelContext.
- *
- * Conforms to the WebMCP spec (webmachinelearning/webmcp) as of 2026-08:
- * - document.modelContext as primary API surface (Chrome 149+ origin trial, extended through 156)
- * - registerTool() per spec; provideContext() was removed from the spec (PR #205)
- * - AbortController / signal for tool lifecycle management
- * - requestUserInteraction() for state-mutating tools
- * - Structured content response format
- * - title field on all tools for native UI display
- * - Declarative form scanning via toolname/tooldescription/toolparamdescription
- * - Re-registration on astro:after-swap (View Transitions)
- *
- * Security applied per Chrome Agent Security Guidelines:
- * - readOnlyHint on all non-mutating tools
- * - untrustedContentHint on tools returning page content
- * - Output character limit (prevents context overflow)
- * - Sanitization against indirect prompt injection
- * - exposedTo for cross-origin control
- * - requestUserInteraction() for state-mutating tools (go_to)
- *
- * @see https://webmachinelearning.github.io/webmcp/
- * @see https://developer.chrome.com/docs/ai/webmcp/secure-tools
- * @see https://developer.chrome.com/docs/agents/security
- */
-
 // Types mirror src/types.ts — kept inline for the injected script (no module system).
 interface ManifestEntry {
   slug: string;
@@ -54,11 +27,12 @@ interface SearchConfig {
 
 interface CustomToolConfig {
   name: string;
+  title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   executeBody: string;
-  annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean };
+  annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean; consequentialHint?: boolean; debugging?: boolean };
 }
 
 interface WebMCPClientConfig {
@@ -85,7 +59,8 @@ const log = {
 
 function truncateOutput(str: string, max: number): string {
   if (str.length <= max) return str;
-  return str.slice(0, max - 13) + '...[truncated]';
+  const suffix = '...[truncated]';
+  return str.slice(0, Math.max(0, max - suffix.length)) + suffix.slice(0, max);
 }
 
 function sanitize(text: string): string {
@@ -98,7 +73,7 @@ function sanitize(text: string): string {
 }
 
 function safeOutput(data: unknown): { content: Array<{ type: string; text: string }> } {
-  let str = JSON.stringify(data);
+  let str = JSON.stringify(data) ?? 'null';
   str = sanitize(str);
   str = truncateOutput(str, CONFIG.maxOutputLength);
   return { content: [{ type: 'text', text: str }] };
@@ -242,18 +217,17 @@ function selectToSchema(sel: HTMLSelectElement, desc: string): Record<string, un
   };
 }
 
-function scanDeclarativeForms(mc: any, registerOptions: any): number {
-  // Chrome 149+ origin trial: toolname/tooldescription on <form>,
-  // toolparamdescription on fields, toolautosubmit for auto-submission.
-  // Legacy name/description also accepted — spec is in flux, support both.
-  // https://developer.chrome.com/docs/ai/webmcp/declarative-api
+async function scanDeclarativeForms(mc: any): Promise<any[]> {
   const forms = document.querySelectorAll<HTMLFormElement>(
     'form[toolname][tooldescription], form[name][description]',
   );
+  const existing = typeof mc.getTools === 'function' ? await mc.getTools() : [];
+  const nativeNames = new Set(existing.filter((tool: any) => tool.window === window).map((tool: any) => tool.name));
   const seen = new Set<string>();
-  let count = 0;
+  const tools: any[] = [];
   for (const form of forms) {
     const name = (form.getAttribute('toolname') ?? form.getAttribute('name'))!;
+    if (form.hasAttribute('toolname') && nativeNames.has(name)) continue;
     if (seen.has(name)) continue;
     seen.add(name);
     const description = (form.getAttribute('tooldescription') ?? form.getAttribute('description'))!;
@@ -279,7 +253,7 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
       if (isRequired) required.push(fieldName);
     }
 
-    mc.registerTool(
+    tools.push(
       {
         name,
         description,
@@ -304,11 +278,9 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
           return safeOutput({ submitted: autoSubmit, form: name });
         },
       },
-      registerOptions,
     );
-    count++;
   }
-  return count;
+  return tools;
 }
 
 // =============================================================================
@@ -316,29 +288,35 @@ function scanDeclarativeForms(mc: any, registerOptions: any): number {
 // =============================================================================
 
 async function initWebMCP(): Promise<void> {
+  (globalThis as any).__WEBMCP_ABORT__?.();
   const mc = (document as any).modelContext ?? (navigator as any).modelContext;
   if (!mc?.registerTool) {
     log.debug('modelContext not available — WebMCP not supported in this browser');
     return;
   }
 
+  const controller = new AbortController();
+  const { signal } = controller;
+  (globalThis as any).__WEBMCP_ABORT__ = () => controller.abort();
+
   let manifest: Manifest;
   try {
-    const res = await fetch('/_webmcp/manifest.json');
+    const res = await fetch('/_webmcp/manifest.json', { signal });
     if (!res.ok) {
       log.warn(`manifest fetch failed: HTTP ${res.status}`);
       return;
     }
     manifest = await res.json();
+    if (signal.aborted) return;
+    if (!Array.isArray(manifest.entries) || !Array.isArray(manifest.collections)) {
+      throw new Error('Invalid WebMCP manifest: expected entries and collections arrays');
+    }
   } catch (err) {
-    log.warn('manifest fetch error:', err);
+    if (!signal.aborted) log.warn('manifest fetch error:', err);
     return;
   }
 
   log.debug(`manifest loaded: ${manifest.entries.length} entries, ${manifest.collections.length} collections`);
-
-  const controller = new AbortController();
-  const { signal } = controller;
 
   const registerOptions: Record<string, unknown> = { signal };
   if (CONFIG.exposedTo?.length) {
@@ -360,12 +338,21 @@ async function initWebMCP(): Promise<void> {
       properties: {
         query: { type: 'string', description: 'Search term' },
         collection: { type: 'string', description: 'Filter by collection name (optional)' },
-        limit: { type: 'number', description: 'Max results to return (default: 5)' },
+        limit: { type: 'integer', minimum: 1, maximum: 20, description: 'Max results to return (default: 5)' },
       },
       required: ['query'],
     },
     execute: async (args: { query: string; collection?: string; limit?: number }) => {
-      const results = await searchContent(manifest, args.query, args.collection, args.limit);
+      if (typeof args?.query !== 'string' || !args.query.trim()) {
+        return safeOutput({ error: 'query must be a non-empty string.' });
+      }
+      if (args.collection !== undefined && typeof args.collection !== 'string') {
+        return safeOutput({ error: 'collection must be a string.' });
+      }
+      if (args.limit !== undefined && (!Number.isInteger(args.limit) || args.limit < 1)) {
+        return safeOutput({ error: 'limit must be a positive integer (maximum 20).' });
+      }
+      const results = await searchContent(manifest, args.query, args.collection, Math.min(args.limit ?? 5, 20));
       return safeOutput(results);
     },
   });
@@ -395,12 +382,19 @@ async function initWebMCP(): Promise<void> {
       },
       required: ['slug'],
     },
-    execute: async (args: { slug: string }) => {
+    execute: async (args: { slug: string }, context?: { signal: AbortSignal }) => {
+      if (typeof args?.slug !== 'string' || !args.slug.trim()) {
+        return safeOutput({ error: 'slug must be a non-empty string.' });
+      }
       const entry = manifest.entries.find(
         (e) => e.slug === args.slug || e.url === args.slug || e.url === `/${args.slug}/`,
       );
       if (!entry) {
         return safeOutput({ error: 'Page not found. Use search_content to find available pages.' });
+      }
+      const target = new URL(entry.url, window.location.href);
+      if (target.origin !== window.location.origin || !['https:', 'http:'].includes(target.protocol)) {
+        return safeOutput({ error: 'Navigation is restricted to pages on this site.' });
       }
       if (mc.requestUserInteraction) {
         const approved = await mc.requestUserInteraction({
@@ -410,7 +404,8 @@ async function initWebMCP(): Promise<void> {
           return safeOutput({ cancelled: true, message: 'Navigation cancelled by user.' });
         }
       }
-      window.location.href = entry.url;
+      context?.signal?.throwIfAborted();
+      window.location.href = target.href;
       return null;
     },
   });
@@ -456,68 +451,65 @@ async function initWebMCP(): Promise<void> {
 
   if (CONFIG.customTools?.length) {
     for (const tool of CONFIG.customTools) {
-      // Chrome-recommended character budgets (dev only):
-      // https://developer.chrome.com/docs/ai/webmcp/secure-tools#set_character_budgets
       if (CONFIG.debug) {
-        // Spec §3: name must be 1–128 chars, [a-zA-Z0-9_.-] only — Chrome rejects others silently.
         if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(tool.name)) log.warn(`tool "${tool.name}": name must match [a-zA-Z0-9_.-] and be 1–128 chars (spec §3)`);
         if (tool.name.length > 30) log.warn(`tool "${tool.name}": name ${tool.name.length} chars (recommended ≤30)`);
         if (tool.description.length > 500) log.warn(`tool "${tool.name}": description ${tool.description.length} chars (recommended ≤500)`);
         const props = (tool.inputSchema as any)?.properties ?? {};
         for (const [pName, p] of Object.entries(props)) {
+          if (pName.length > 30) log.warn(`tool "${tool.name}" param "${pName}": name ${pName.length} chars (recommended ≤30)`);
           const d = (p as any)?.description;
           if (typeof d === 'string' && d.length > 150) log.warn(`tool "${tool.name}" param "${pName}": description ${d.length} chars (recommended ≤150)`);
         }
       }
       try {
-        // eslint-disable-next-line no-new-func
-        const executeFn = new Function('params', 'safeOutput', 'signal', tool.executeBody) as (
+        const executeFn = new Function('params', 'safeOutput', 'signal', `return (async () => {${tool.executeBody}\n})();`) as (
           params: Record<string, unknown>,
           so: typeof safeOutput,
-          signal: AbortSignal,
+          signal?: AbortSignal,
         ) => unknown;
         tools.push({
           name: tool.name,
-          title: tool.name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+          title: tool.title ?? tool.name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
           description: tool.description,
-          annotations: tool.annotations ?? { readOnlyHint: true },
+          annotations: { readOnlyHint: false, ...tool.annotations },
           inputSchema: tool.inputSchema,
           ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-          execute: async (params: Record<string, unknown>) => {
-            const result = executeFn(params, safeOutput, signal);
-            return result instanceof Promise ? await result : result;
+          execute: async (params: Record<string, unknown>, context?: { signal: AbortSignal }) => {
+            return executeFn(params, safeOutput, context?.signal);
           },
         });
       } catch (err) {
-        log.warn(`Failed to register custom tool "${tool.name}":`, err);
+        controller.abort();
+        log.warn(`Failed to compile custom tool "${tool.name}":`, err);
+        return;
       }
     }
   }
 
-  // Spec: registerTool() is the standard API (Chrome 149+ has no provideContext).
-  for (const tool of tools) {
-    mc.registerTool(tool, registerOptions);
-  }
-  log.info(`${tools.length} tool${tools.length === 1 ? '' : 's'} registered`);
-
-  (globalThis as any).__WEBMCP_ABORT__ = () => controller.abort();
-
-  if (CONFIG.formScanning) {
-    const formCount = scanDeclarativeForms(mc, registerOptions);
-    if (formCount > 0) {
-      log.info(`${formCount} declarative form${formCount === 1 ? '' : 's'} registered as tools`);
+  try {
+    if (CONFIG.formScanning) tools.push(...await scanDeclarativeForms(mc));
+    for (const tool of tools) {
+      if (signal.aborted) return;
+      const execute = tool.execute;
+      tool.execute = async (params: Record<string, unknown>, context?: { signal: AbortSignal }) => {
+        context?.signal?.throwIfAborted();
+        return execute(params, context);
+      };
+      await mc.registerTool(tool, registerOptions);
     }
+    if (signal.aborted) return;
+    log.info(`${tools.length} tools registered`);
+  } catch (err) {
+    if (signal.aborted) return;
+    controller.abort();
+    log.warn('Tool registration failed; rolled back this batch:', err);
   }
 }
 
 initWebMCP();
 
-// Re-register tools after View Transitions page swap (Astro client-side navigation).
-// Without this, tools disappear after SPA navigation because the old AbortController
-// is gone and the new page hasn't registered tools.
-document.addEventListener('astro:after-swap', () => {
-  if ((globalThis as any).__WEBMCP_ABORT__) {
-    (globalThis as any).__WEBMCP_ABORT__();
-  }
-  initWebMCP();
+document.addEventListener('astro:before-swap', () => {
+  (globalThis as any).__WEBMCP_ABORT__?.();
 });
+document.addEventListener('astro:after-swap', initWebMCP);

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .astro/
+_temp/
 
 # Docs internos
 docs/astro-directory.md

@@ -7,32 +7,8 @@ import type { CustomTool, McpServerCard, SearchOptions, SecurityOptions, WebMCPM
 
 export type { WebMCPOptions, CustomTool, ManifestEntry, WebMCPManifest, SecurityOptions, SearchOptions, ToolAnnotations, ToolContentResponse, McpServerCard } from './types.js';
 
-/**
- * Astro integration that exposes site content via WebMCP for AI agents.
- *
- * Build time: generates /_webmcp/manifest.json with page metadata.
- * Browser: injects a script that registers tools via document.modelContext.
- *
- * Spec conformance (WebMCP draft, June 2026):
- * - registerTool() is the standard API; provideContext() kept as fallback
- * - title field on all tools for native UI display
- * - Re-registration on astro:after-swap (View Transitions support)
- *
- * v7 features (auto-detected, inactive on v6):
- * - Route caching on manifest endpoint (if cache provider configured)
- * - Heading IDs extraction (Sätteri generates them by default)
- * - Agent Skills Discovery (/.well-known/skills/index.json)
- * - SSR middleware for dynamic manifest
- *
- * Security applied per Chrome Agent Security Guidelines:
- * - Annotations (readOnlyHint, untrustedContentHint) on all tools
- * - Output character limit (prevents context overflow)
- * - Sanitization against indirect prompt injection
- * - Cross-origin control via exposedTo
- *
- * @see https://developer.chrome.com/docs/ai/webmcp/secure-tools
- * @see https://developer.chrome.com/docs/agents/security
- */
+const packageVersion: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
+
 export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegration {
   let siteUrl: string | undefined;
   let hasRouteCaching = false;
@@ -75,17 +51,12 @@ export default function astroWebMcp(options: WebMCPOptions = {}): AstroIntegrati
         }
 
         const configScript =
-          `globalThis.__WEBMCP_CONFIG__=${JSON.stringify({ ...security, customTools, formScanning, search, debug: isDev })};`;
+          `globalThis.__WEBMCP_CONFIG__=${JSON.stringify({ ...security, customTools, formScanning, search, debug: isDev }).replace(/</g, '\\u003c')};`;
 
-        let clientCode: string;
-        try {
-          clientCode = readFileSync(clientPath, 'utf-8');
-        } catch {
-          clientCode = getInlineClient();
-        }
+        const clientCode = readFileSync(clientPath, 'utf-8');
 
         // head-inline bypasses Vite bundling — reliable on Astro v6 and v7.
-        injectScript('head-inline', configScript + clientCode);
+        injectScript('head-inline', configScript + `(()=>{${clientCode}\n})();`);
 
         const features: string[] = [];
         if (hasRouteCaching) features.push('route-caching');
@@ -294,7 +265,7 @@ function buildServerCard(siteUrl: string | undefined, options: WebMCPOptions): M
   for (const tool of options.customTools ?? []) {
     tools.push({
       name: tool.name,
-      title: tool.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      title: tool.title ?? tool.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
       description: tool.description,
       inputSchema: tool.inputSchema,
     });
@@ -307,7 +278,7 @@ function buildServerCard(siteUrl: string | undefined, options: WebMCPOptions): M
     serverInfo: {
       name: 'astro-webmcp',
       title: options.serverCardName ?? 'WebMCP Server',
-      version: '1.3.0',
+      version: packageVersion,
     },
     description: options.serverCardDescription ?? `WebMCP tools for ${base || 'this site'}`,
     documentationUrl: base || undefined,
@@ -399,9 +370,4 @@ function extractMeta(dir: URL, pathname: string): {
       description: '',
     };
   }
-}
-
-/** Minimal inline client fallback — with security and spec conformance applied. */
-function getInlineClient(): string {
-  return `(async()=>{const C=globalThis.__WEBMCP_CONFIG__||{maxOutputLength:1500,sanitizeOutputs:true};const mc=document.modelContext||navigator.modelContext;if(!mc?.registerTool)return;let m;try{const r=await fetch("/_webmcp/manifest.json");if(!r.ok)return;m=await r.json()}catch{return}function sn(t){if(!C.sanitizeOutputs)return t;return t.replace(/ignore\\s+(all\\s+)?(previous|above|prior)\\s+(instructions?|prompts?|rules?)/gi,"[filtered]").replace(/you\\s+are\\s+(now|a)\\s+/gi,"[filtered]").replace(/(system|assistant|user)\\s*:\\s*/gi,"[filtered]").replace(/<\\/?(?:system|instruction|prompt|command)[^>]*>/gi,"[filtered]")}function so(d){let s=JSON.stringify(d);s=sn(s);if(s.length>C.maxOutputLength)s=s.slice(0,C.maxOutputLength-13)+"...[truncated]";return{content:[{type:"text",text:s}]}}const ac=new AbortController();const opts={signal:ac.signal,...(C.exposedTo?.length?{exposedTo:C.exposedTo}:{})};const tools=[{name:"search_content",title:"Search Content",description:"Search articles and pages on this site by keyword.",annotations:{readOnlyHint:true,untrustedContentHint:true},inputSchema:{type:"object",properties:{query:{type:"string",description:"Search term"},collection:{type:"string",description:"Filter by collection (optional)"},limit:{type:"number",description:"Max results (default: 5)"}},required:["query"]},execute:async({query:q,collection:c,limit:l=5})=>{const t=q.toLowerCase();let r=m.entries.filter(e=>e.title.toLowerCase().includes(t)||(e.description||"").toLowerCase().includes(t)||(e.tags||[]).some(tg=>tg.toLowerCase().includes(t)));if(c)r=r.filter(e=>e.collection===c);return so(r.slice(0,Math.min(l,20)))}},{name:"list_sections",title:"List Sections",description:"List content sections available on this site.",annotations:{readOnlyHint:true},inputSchema:{type:"object",properties:{}},execute:async()=>so(m.collections)},{name:"go_to",title:"Go To Page",description:"Navigate to a page by slug.",annotations:{readOnlyHint:false},inputSchema:{type:"object",properties:{slug:{type:"string",description:"Page slug or path"}},required:["slug"]},execute:async({slug:s})=>{const e=m.entries.find(x=>x.slug===s||x.url===s||x.url==="/"+s+"/");if(!e)return so({error:"Page not found. Use search_content to find available pages."});if(mc.requestUserInteraction){const ok=await mc.requestUserInteraction({message:"Navigate to \\""+e.title+"\\" ("+e.url+")?"});if(!ok)return so({cancelled:true,message:"Navigation cancelled by user."})}window.location.href=e.url;return null}},{name:"get_page_info",title:"Get Page Info",description:"Get current page metadata.",annotations:{readOnlyHint:true,untrustedContentHint:true},inputSchema:{type:"object",properties:{}},execute:async()=>{const h=Array.from(document.querySelectorAll("h1,h2,h3")).map(x=>({level:parseInt(x.tagName[1]),text:x.textContent?.trim()||"",...(x.id?{id:x.id}:{})}));return so({title:document.title,description:document.querySelector('meta[name="description"]')?.getAttribute("content")||"",headings:h,url:location.pathname,lang:document.documentElement.lang||undefined,canonical:document.querySelector('link[rel="canonical"]')?.getAttribute("href")||undefined})}}];const batch=typeof mc.provideContext==="function";if(batch){mc.provideContext({tools},opts)}else{for(const t of tools)mc.registerTool(t,opts)}globalThis.__WEBMCP_ABORT__=()=>ac.abort()})();document.addEventListener("astro:after-swap",()=>{if(globalThis.__WEBMCP_ABORT__)globalThis.__WEBMCP_ABORT__();const C=globalThis.__WEBMCP_CONFIG__||{maxOutputLength:1500,sanitizeOutputs:true};const mc=document.modelContext||navigator.modelContext;if(!mc?.registerTool)return;fetch("/_webmcp/manifest.json").then(r=>r.ok?r.json():null).then(m=>{if(!m)return;const ac2=new AbortController();const opts2={signal:ac2.signal,...(C.exposedTo?.length?{exposedTo:C.exposedTo}:{})};const tools2=[{name:"search_content",title:"Search Content",description:"Search articles and pages on this site by keyword.",annotations:{readOnlyHint:true,untrustedContentHint:true},inputSchema:{type:"object",properties:{query:{type:"string",description:"Search term"},collection:{type:"string",description:"Filter by collection (optional)"},limit:{type:"number",description:"Max results (default: 5)"}},required:["query"]},execute:async({query:q,collection:c,limit:l=5})=>{const t=q.toLowerCase();let r=m.entries.filter(e=>e.title.toLowerCase().includes(t)||(e.description||"").toLowerCase().includes(t));if(c)r=r.filter(e=>e.collection===c);return tools2.so?tools2.so(r.slice(0,Math.min(l,20))):r.slice(0,Math.min(l,20))}}];if(typeof mc.provideContext==="function"){mc.provideContext({tools:tools2},opts2)}else{for(const t of tools2)mc.registerTool(t,opts2)}globalThis.__WEBMCP_ABORT__=()=>ac2.abort()})});`;
 }
