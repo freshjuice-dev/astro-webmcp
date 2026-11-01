@@ -1,4 +1,4 @@
-# Architecture — @freshjuice/astro-webmcp
+# Architecture: @freshjuice/astro-webmcp
 
 ## Overview
 
@@ -6,7 +6,7 @@
 ┌──────────────────────────────────────────────────────────┐
 │                     BUILD TIME                           │
 │                                                          │
-│  Content Collections ──→ Hook astro:build:done           │
+│  Generated pages ─────→ Hook astro:build:done            │
 │  (blog, docs, etc.)      │                               │
 │                          ▼                               │
 │                    Manifest JSON                         │
@@ -25,7 +25,7 @@
 │       ├─ document.modelContext.registerTool()            │
 │       │    ├── search_content (3 backends)               │
 │       │    ├── list_sections                             │
-│       │    ├── go_to (+ requestUserInteraction)          │
+│       │    ├── go_to (navigation)                       │
 │       │    ├── get_page_info (enhanced)                  │
 │       │    └── custom tools (user-defined)               │
 │       │                                                  │
@@ -36,33 +36,34 @@
 ┌──────────────────────────────────────────────────────────┐
 │                     AI AGENT                             │
 │                                                          │
-│  Chrome (149+) discovers tools via WebMCP protocol       │
+│  Experimental Chrome discovers tools via WebMCP          │
 │  Agent can search, list, navigate, and call custom tools │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ## Components
 
-### 1. Astro Integration (`src/index.ts`)
+### 1. Astro integration (`src/index.ts`)
 
 Implements the `AstroIntegration` interface with three hooks:
 
 #### `astro:config:setup`
 
 - Uses `injectScript('head-inline', ...)` to insert the client-side script directly into `<head>` on every page
-- **Why `head-inline`:** Bypasses Vite bundling — more reliable than `'page'` stage on Astro, which can drop the script during optimization
+- `head-inline` bypasses Vite bundling so the injected script is not processed as a page module
 - Injects `__WEBMCP_CONFIG__` global with security settings, custom tools, form scanning toggle, and search backend config
+- Adds middleware in SSR mode. Its manifest response is limited; it does not crawl dynamic routes, enumerate Content Collections, or build a complete content index.
 
 #### `astro:server:setup`
 
 - Serves a minimal dev manifest at `/_webmcp/manifest.json` for local development
-- Dev manifest is a stub (hardcoded Home entry) — full manifest is only generated at build time
+- The dev manifest is a hardcoded Home-only stub; the build produces the generated-page manifest
 
 #### `astro:build:done`
 
 - Receives `dir` (output directory) and `pages` (list of generated pages)
 - Generates `/_webmcp/manifest.json` with enhanced metadata for each page
-- Extracts collection information, tags, OpenGraph metadata, canonical URL, language, and word count
+- Groups generated pages by their first URL path segment and extracts tags, OpenGraph metadata, canonical URL, language, and word count from available HTML
 - Respects `collections` filter option
 
 ### 2. Manifest (`/_webmcp/manifest.json`)
@@ -83,7 +84,7 @@ Static JSON file generated at build time with enhanced metadata:
       "description": "Article summary",
       "collection": "blog",
       "tags": ["astro", "webmcp"],
-      "ogTitle": "My Article — Site Name",
+      "ogTitle": "My Article: Site Name",
       "ogDescription": "A richer OpenGraph description",
       "canonical": "https://mysite.com/blog/my-article/",
       "lang": "en",
@@ -106,17 +107,19 @@ Static JSON file generated at build time with enhanced metadata:
 | `lang` | `<html lang="...">` |
 | `wordCount` | Approximate count from `<main>` text content |
 
-### 3. Client-side Script (`src/client.ts`)
+### 3. Client-side script (`src/client.ts`)
 
 Runs in the browser on every page. Responsible for:
 
-1. Checking WebMCP support (`'modelContext' in navigator`)
+1. Checking `document.modelContext.registerTool`, with `navigator.modelContext` only as a legacy preview fallback
 2. Fetching the manifest
-3. Registering 4 built-in tools + custom tools + declarative forms
+3. Preparing four built-in tools, custom tools, and opted-in scanned forms, then awaiting each registration
+4. Aborting the shared registration controller on any compilation or registration failure to roll back the whole integration-owned batch
+5. Cleaning up before Astro page-transition initialization and discarding stale asynchronous work
 
-The script is lightweight (~3KB) and has zero impact on browsers without WebMCP support — it exits on the first check.
+Unsupported browsers still load the injected script but exit before fetching the manifest or registering tools. Registration rollback is an application lifecycle policy, not a native atomic batch operation; tools may be discoverable while a successful batch is being registered.
 
-### 4. Search Backends
+### 4. Search backends
 
 `search_content` supports three backends with automatic fallback:
 
@@ -131,12 +134,12 @@ searchContent(query)
 | Backend | Implementation | Fallback |
 |---------|---------------|----------|
 | `manifest` | Substring match on `title`, `description`, `tags` | N/A (always works) |
-| `pagefind` | `window.pagefind.search()` — full-text | Falls back to manifest if pagefind not found or returns empty |
-| `orama` | Dynamic `import('@orama/orama')` + `fetch(oramaIndexUrl)` — full-text | Falls back to manifest if import fails or returns empty |
+| `pagefind` | Full-text via `window.pagefind.search()` | Falls back to manifest if pagefind not found or returns empty |
+| `orama` | Full-text via dynamic `import('@orama/orama')` + `fetch(oramaIndexUrl)` | Falls back to manifest if import fails or returns empty |
 
-**Orama dynamic import:** The `@orama/orama` package is only loaded when `backend='orama'` and a search is actually performed. It's not bundled — the dynamic `import()` only fires at runtime, keeping the base script small for sites that don't use Orama.
+The runtime imports `@orama/orama` only when an Orama search is performed. It is not bundled; the browser must be able to resolve the import or search falls back to the manifest.
 
-### 5. Custom Tools System
+### 5. Custom tools system
 
 Custom tools are serialized into `__WEBMCP_CONFIG__` at build time and registered by the client script at runtime:
 
@@ -146,99 +149,119 @@ astro.config.mjs                    Build time
                                           │
                                           ▼
                                     Browser runtime
-                                    new Function(params, safeOutput, executeBody)
+                                    Async body(params, safeOutput, signal)
                                           │
                                           ▼
                                     document.modelContext.registerTool()
 ```
 
-Each custom tool's `executeBody` is compiled via `new Function(params, safeOutput, body)` — it receives the tool's input params and the `safeOutput` helper (for sanitization + truncation).
+Each custom tool's `executeBody` is dynamically compiled as an async function body with `params`, `safeOutput`, and `signal`. It supports `await` and runs as public browser code, without access to config closures. The native callback is `execute(params, { signal })`; the body receives that per-execution signal, not the registration controller's signal. Pass it to cancellable work such as `fetch()`.
 
-### 6. Declarative Form Scanning
+Custom tools support an optional `title` and the `readOnlyHint`, `untrustedContentHint`, `consequentialHint`, and `debugging` annotations. `readOnlyHint` defaults to `false`, so read-only tools must opt in explicitly. Chrome documents `debugging` from version 156. `outputSchema` is compatibility metadata, not a member of the current WebMCP IDL.
 
-When `formScanning: true`, the client script scans the DOM for `<form>` elements with `toolname`/`tooldescription` (spec) or `name`/`description` (legacy) attributes:
+`safeOutput()` produces the package's MCP-style text-content envelope after heuristic filtering and truncation. WebMCP accepts JSON-serializable results without requiring that envelope. Truncation can make the inner text invalid JSON. Dynamic compilation must be compatible with the site's Content Security Policy; tool bodies must be trusted code and contain no secrets.
+
+### 6. Declarative form scanning
+
+When `formScanning: true`, the client scans forms with Chrome's experimental `toolname`/`tooldescription` or legacy `name`/`description` attributes:
 
 ```
 DOM scan
   querySelectorAll('form[toolname][tooldescription], form[name][description]')
        │
        ├─ Build inputSchema from form fields (name, type, required, toolparamdescription)
-       ├─ Dedupe by tool name (browser may register spec forms natively)
-       ├─ Register tool via document.modelContext.registerTool()
-       └─ execute: fill fields → form.requestSubmit()
+       ├─ Check names against the integration's tool batch
+       ├─ Await registration as part of that batch
+       └─ execute: fill fields; requestSubmit() only with toolautosubmit
 ```
 
-This polyfills the spec's [Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api) for browsers without native support. On Chrome 149+ the browser registers spec-annotated forms natively. No JS required in the form markup — just the annotation attributes.
+This is an opt-in package extension, not a complete polyfill for Chrome's experimental [Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api). Declarative forms were removed from the community draft in October 2026 ([PR #338](https://github.com/webmachinelearning/webmcp/pull/338)). The scanner checks `getTools()` and skips experimental native form names registered in the current window. Test registration timing in the target browser and keep scanning off when native registration already handles the forms. Calling `requestSubmit()` does not establish that the server-side action succeeded.
 
-### 7. Security Layer
+### 7. Security layer
 
-All tools apply Chrome Agent Security Guidelines:
+The package provides hints and output controls, not an application security boundary. Follow Chrome's [tool security guidance](https://developer.chrome.com/docs/ai/webmcp/secure-tools) and enforce consent, input validation, authentication, and authorization in the application service used by both the UI and tools.
 
 | Mechanism | Where | Purpose |
 |-----------|-------|---------|
 | `readOnlyHint` | Tool annotations | Declares non-mutating tools |
 | `untrustedContentHint` | Tool annotations | Marks tools returning UGC/external data |
-| `requestUserInteraction()` | `go_to` execute | Prompts user consent before navigation |
+| `consequentialHint` | Custom tool annotations | Describes significant effects; does not enforce consent |
+| `requestUserInteraction()` | `go_to` compatibility path | Used only when available; otherwise navigation has no such prompt |
 | Output truncation | `safeOutput()` | Caps at `maxOutputLength` (default 1500 chars) |
-| Prompt injection sanitization | `sanitize()` | Strips instruction patterns from output |
-| `exposedTo` | `registerOptions` | Controls cross-origin tool access |
+| Heuristic filtering | `sanitize()` | Removes some instruction patterns; cannot guarantee protection from prompt injection |
+| `exposedTo` | `registerOptions` | Provider opt-in for secure caller origins |
 
-## WebMCP APIs Used
+Cross-origin discovery also requires the caller's `getTools({ fromOrigins: [...] })` opt-in. Registration in cross-origin frames needs `allow="tools"` permissions delegation. These gates are separate from application authorization. A schema-valid call can still be unauthorized.
+
+## WebMCP APIs used
 
 | API | Usage |
 |-----|-------|
-| `document.modelContext.registerTool()` | Registers each tool (spec API) |
-| `document.modelContext.provideContext()` | Batch fallback for older Chrome previews (removed from spec, PR #205) |
-| `document.modelContext.requestUserInteraction()` | User consent for `go_to` navigation |
+| `document.modelContext.registerTool(tool, options)` | Awaited registration; returns `Promise<void>` |
+| Registration `options.signal` | Unregisters on abort; distinct from execution cancellation |
+| `document.modelContext.getTools(options)` | Discovers descriptors; `fromOrigins` opts in to secure provider origins |
+| `document.modelContext.executeTool(descriptor, inputObject, options)` | Executes a discovered descriptor with object input; `options.signal` cancels that call |
+| `toolchange`, `toolactivated`, `toolcancel` | Events on `modelContext`; activation/cancellation identify the tool |
 | `inputSchema` (JSON Schema) | Defines typed parameters for agents |
-| `execute` (async function) | Logic executed when agent calls the tool |
+| `execute(params, { signal })` | Async callback with a per-execution cancellation signal |
 
 Reference: https://developer.chrome.com/docs/ai/webmcp/imperative-api
 
-## Design Decisions
+The current [community draft IDL](https://webmachinelearning.github.io/webmcp/#idl-index) exposes `modelContext` on `Document` in secure contexts. It includes neither `provideContext()` nor `requestUserInteraction()`. The latter remains only a feature-detected compatibility path in `go_to`, not a consent guarantee. Chrome's experimental implementation and the community draft can differ; consult [Chrome Status](https://chromestatus.com/feature/5117755740913664) for availability rather than assuming stable support from a version number.
+
+## Design decisions
 
 ### Why JSON manifest instead of virtual module?
 
-- Works for both SSG and SSR
+- Static builds generate page metadata; the limited SSR middleware does not provide a complete dynamic index
 - No complex Vite plugin needed
 - Cache-friendly (static file served by CDN)
 - Can be pre-generated by CI without running full Astro build
 
 ### Why multiple search backends?
 
-- `manifest` search works everywhere with zero dependencies — good default
+- `manifest` search needs only a valid manifest and no search dependency
 - `pagefind` and `orama` provide full-text search for larger sites
-- Automatic fallback means the site never breaks — if a backend fails, it degrades gracefully to manifest search
+- If a search backend fails, the client falls back to manifest search
 - Dynamic import for Orama keeps the base script small
 
-### Why `provideContext()` + `registerTool()` fallback?
+### Why awaited registration with rollback?
 
-- `provideContext()` is the spec-preferred batch method (sets all tools at once)
-- `registerTool()` is the older individual method — kept as fallback for browsers that haven't updated
-- Both paths produce identical results; the fallback is transparent
+- `registerTool()` is the current registration API; `provideContext()` is absent from the current draft.
+- Awaiting each call catches asynchronous rejection. Any compilation or registration failure aborts the shared controller, removing the integration's batch, including scanned forms.
+- Cleanup runs before a replacement initialization. Stale initialization work must not overwrite the active page's registrations.
+- The registration signal controls discovery lifetime. Per-call cancellation comes from the native execution callback; unregistering does not cancel in-flight work in the current API (Chrome documents this behavior from version 153).
 
-### Why `requestUserInteraction()` for `go_to`?
+### Who owns confirmation and cancellation?
 
-- Navigation is state-mutating — the user leaves the current page
-- Chrome Agent Security Guidelines require user consent for mutating tools
-- If the browser doesn't support `requestUserInteraction()` yet, navigation proceeds without prompt (graceful degradation)
+- The application owns confirmation for consequential actions. Neither annotations nor the optional compatibility hook replace it.
+- Bind confirmation to the exact resource and current state, reject stale plans, and validate permissions again at commit.
+- Define the irreversible commit boundary. Cancellation before commit must prevent the action; a later abort cannot promise to undo a server-side change.
+- Resolve success only after the committed state and UI agree. Share the validation and side-effect service between tools, UI, and tests.
 
 ### Why `head-inline` instead of `page`?
 
 - Astro's `injectScript('page', ...)` can drop scripts during Vite optimization
-- `head-inline` injects directly into `<head>` as a `<script>` tag — guaranteed delivery
+- `head-inline` injects directly into `<head>` as a `<script>` tag; the site's Content Security Policy still applies
+- Configuration escapes `<` to prevent script-element termination. An IIFE isolates client bindings; the bundled client is required rather than replaced with a reduced fallback.
 - Same performance characteristics (the script is tiny and exits early on unsupported browsers)
 
 ### Why declarative form scanning is opt-in?
 
 - Not all forms should be exposed as WebMCP tools (e.g., login forms, admin panels)
 - Opt-in via `formScanning: true` gives developers control
-- When enabled, only forms with explicit `name` and `description` attributes are registered — accidental exposure is prevented
+- When enabled, forms need either `toolname`/`tooldescription` or legacy `name`/`description` annotations. Review every matching form; attributes are not an authorization boundary.
 
-## Future Extensibility
+## Verification
 
-- **Additional search backends** — Meilisearch, Algolia, FlexSearch via the same pattern
-- **Server-side search endpoint** — for sites with 10,000+ pages where client-side manifest is too large
-- **Page state tools** — expose dynamic context (current article, breadcrumbs, active filters)
-- **Auth-gated tools** — tools that only appear for authenticated users
-- **Tool analytics** — track which tools agents call most frequently
+Run `npm test` to build and execute `node --test tests/*.test.mjs`. Mocked API checks do not prove native browser compatibility. Follow the [manual Chrome smoke test](usage.md#testing-locally) for discovery, object-input execution, events, registration rollback, page transitions, per-call cancellation, and cross-origin denial cases.
+
+For agent evaluations, pin the package, browser build and flags/trial, spec revision, model/agent version, and fixture state. Evaluate real task outcomes as well as schema handling. Include authorization failures, stale confirmations, retries, and cancellation on both sides of the commit boundary. See Chrome's [best practices](https://developer.chrome.com/docs/ai/webmcp/best-practices) and [evaluation guide](https://developer.chrome.com/docs/ai/webmcp/evals).
+
+## Future extensibility
+
+- Additional search backends: Meilisearch, Algolia, or FlexSearch
+- Server-side search for sites whose manifest is too large for client-side search
+- Page-state tools for dynamic context such as active filters
+- Auth-gated tool visibility, alongside server-enforced authorization
+- Tool-call analytics

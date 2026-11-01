@@ -11,7 +11,7 @@
 
 ## What is WebMCP?
 
-WebMCP is a proposed web standard by Chrome that lets websites declare structured **tools** for AI agents. Instead of an agent visually interpreting each page element, the site explicitly declares what can be done — search articles, navigate to sections, get page metadata.
+WebMCP is an experimental browser API that lets websites expose structured tools for AI agents, such as searching articles, navigating to a page, or reading metadata. The community draft is not a W3C Standard, and Chrome's experimental features can differ from that draft.
 
 - **Spec:** [https://webmachinelearning.github.io/webmcp/](https://webmachinelearning.github.io/webmcp/)
 - **Chrome docs:** [https://developer.chrome.com/docs/ai/webmcp](https://developer.chrome.com/docs/ai/webmcp)
@@ -25,7 +25,7 @@ WebMCP is a proposed web standard by Chrome that lets websites declare structure
 npm install @freshjuice/astro-webmcp
 ```
 
-## Basic Usage
+## Basic usage
 
 ```js
 // astro.config.mjs
@@ -37,7 +37,7 @@ export default defineConfig({
 });
 ```
 
-All site content is automatically exposed via WebMCP.
+The integration exposes metadata for generated pages through WebMCP tools in supported browsers. Development uses a Home-only stub manifest; SSR middleware does not build a complete index of dynamic content.
 
 ---
 
@@ -48,7 +48,7 @@ webmcp({
   // Filter which collections to expose (default: all)
   collections: ['blog', 'docs'],
 
-  // Custom tools — expose your own domain-specific functionality
+  // Custom tools: expose your own domain-specific functionality
   customTools: [
     {
       name: 'search_products',
@@ -60,9 +60,8 @@ webmcp({
         },
         required: ['query'],
       },
-      executeBody: `return fetch('/api/search?q=' + encodeURIComponent(params.query))
-        .then(r => r.json())
-        .then(d => safeOutput(d));`,
+      executeBody: `return safeOutput(await fetch('/api/search?q=' + encodeURIComponent(params.query), { signal })
+        .then(r => { if (!r.ok) throw new Error('Search failed'); return r.json(); }));`,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
     },
   ],
@@ -81,7 +80,7 @@ webmcp({
   security: {
     exposedTo: [],          // origins allowed cross-origin access (default: none)
     maxOutputLength: 1500,  // max chars per tool output (default: 1500)
-    sanitizeOutputs: true,  // strip prompt injection patterns (default: true)
+    sanitizeOutputs: true,  // heuristic output filtering (default: true)
   },
 })
 ```
@@ -92,38 +91,41 @@ webmcp({
 | `customTools` | `CustomTool[]` | `[]` | Domain-specific tools to register alongside built-in ones |
 | `formScanning` | `boolean` | `false` | Auto-register `<form toolname="..." tooldescription="...">` elements as tools |
 | `search.backend` | `'manifest' \| 'pagefind' \| 'orama'` | `'manifest'` | Search backend for `search_content` |
-| `search.oramaIndexUrl` | `string` | — | URL of pre-built Orama index (required for `'orama'`) |
-| `search.pagefindBundlePath` | `string` | `'/pagefind/'` | Pagefind bundle path |
+| `search.oramaIndexUrl` | `string` | Unset | URL of pre-built Orama index (required for `'orama'`) |
+| `search.pagefindBundlePath` | `string` | `'/pagefind/'` | Compatibility option; load `window.pagefind` yourself |
 | `security.exposedTo` | `string[]` | `[]` | Origins allowed to access tools cross-origin |
 | `security.maxOutputLength` | `number` | `1500` | Character limit per tool output |
 | `security.sanitizeOutputs` | `boolean` | `true` | Strip patterns that resemble prompt injection |
 
-### Custom Tools
+### Custom tools
 
 The `customTools` array lets you expose your own site-specific functionality. Each tool needs:
 
-- `name` — unique tool identifier
-- `description` — natural language description for AI agents
-- `inputSchema` — JSON Schema for the tool's parameters
-- `executeBody` — function body (runs in browser). Receives `params`, `safeOutput`, and `signal` (AbortSignal — pass to `fetch()` for cancellation, per spec PR #247). Must return data or a Promise.
-- `annotations` — optional security hints (`readOnlyHint`, `untrustedContentHint`)
+- `name`: unique tool identifier (1-128 ASCII letters, digits, `_`, `-`, or `.`).
+- `description`: natural language description for AI agents.
+- `inputSchema`: JSON Schema for the tool's parameters; validate actual inputs in application code too.
+- `executeBody`: async function body string, run in the browser with `params`, `safeOutput`, and the per-execution `signal`. Supports `await`; pass `signal` to `fetch()` for cancellation.
+- `title`: optional human-readable display title.
+- `annotations`: optional `readOnlyHint`, `untrustedContentHint`, `consequentialHint`, and `debugging` hints. `readOnlyHint` defaults to `false`; declare `true` only for non-mutating tools. Chrome documents `debugging` from version 156.
 
-### Search Backends
+`safeOutput()` returns the package's MCP-style `{ content: [{ type: 'text', text: '...' }] }` envelope. WebMCP permits JSON-serializable results and does not require this envelope. `outputSchema`, if supplied, is compatibility metadata, not a field supported by the current WebMCP IDL. Tool code is public browser code: keep secrets and authorization checks on the server.
+
+### Search backends
 
 `search_content` supports three backends, with automatic fallback to manifest search:
 
 | Backend | Description | Requires |
 |---------|-------------|----------|
-| `manifest` (default) | Substring search on the generated manifest | Nothing — always works |
+| `manifest` (default) | Substring search on the generated manifest | A valid manifest |
 | `pagefind` | Full-text search via Pagefind | `astro-pagefind` or `pagefind` on the page |
 | `orama` | Full-text search via Orama | `@freshjuice/astro-search-plugin` or similar, with `oramaIndexUrl` |
 
-### Declarative Form Scanning
+### Declarative form scanning
 
-When `formScanning: true`, annotated `<form>` elements are auto-registered as WebMCP tools. Both the current spec attributes ([Declarative API](https://developer.chrome.com/docs/ai/webmcp/declarative-api), Chrome 149+) and the legacy scheme are supported:
+`formScanning: true` enables the package's opt-in form scanner. It accepts Chrome's experimental [declarative attributes](https://developer.chrome.com/docs/ai/webmcp/declarative-api) and legacy attributes. Declarative forms were removed from the community draft in October 2026; this scanner is a compatibility extension, not a standards-compliant polyfill.
 
 ```html
-<!-- spec attributes (preferred) -->
+<!-- Chrome experimental attributes -->
 <form toolname="search_products" tooldescription="Search product catalog by keyword">
   <input name="query" type="text" required toolparamdescription="Search term">
   <button type="submit">Search</button>
@@ -136,17 +138,17 @@ When `formScanning: true`, annotated `<form>` elements are auto-registered as We
 </form>
 ```
 
-The integration builds the input schema from form fields and submits the form when the agent calls the tool. On Chrome 149+ the browser registers spec-annotated forms natively; the scanner polyfills the rest and dedupes by tool name.
+The scanner derives input schemas from fields and fills them when called. It calls `requestSubmit()` only for forms with `toolautosubmit`; otherwise the user submits the filled form. It skips experimental native form tools already discoverable in the current window. Use unique names across built-in, custom, and scanned tools, and test native registration timing in your target browser. Scanner submission does not wait for your server-side operation to finish.
 
 ---
 
-## Registered Tools
+## Registered tools
 
 | Tool | Description |
 |------|-------------|
 | `search_content` | Search articles and pages by keyword (supports manifest, Pagefind, or Orama backends) |
 | `list_sections` | List available content sections with item counts |
-| `go_to` | Navigate to a specific page by slug (prompts user consent via `requestUserInteraction`) |
+| `go_to` | Navigate to a specific page by slug; browser consent is not guaranteed |
 | `get_page_info` | Get current page metadata (title, description, headings, language, word count, canonical URL) |
 | *declarative forms* | Any `<form toolname="..." tooldescription="...">` (or legacy `name`/`description`) when `formScanning: true` |
 | *your custom tools* | Whatever you define via `customTools` |
@@ -178,7 +180,7 @@ The integration builds the input schema from form fields and submits the form wh
 │       ├─ document.modelContext.registerTool()            │
 │       │    ├─ search_content (manifest/pagefind/orama)   │
 │       │    ├─ list_sections                              │
-│       │    ├─ go_to (+ requestUserInteraction)           │
+│       │    ├─ go_to (navigation)                        │
 │       │    ├─ get_page_info (enhanced metadata)          │
 │       │    └─ custom tools (user-defined)                │
 │       │                                                  │
@@ -188,17 +190,17 @@ The integration builds the input schema from form fields and submits the form wh
 
 ---
 
-## Browser Support
+## Browser support
 
-WebMCP is currently in Origin Trial on Chrome 149–156 (desktop, Android, WebView) via one of two methods:
+WebMCP is experimental and available through Chrome's testing flag or origin trial. Use HTTPS (localhost is suitable for development), feature-detect `document.modelContext`, and consult [Chrome Status](https://chromestatus.com/feature/5117755740913664) and the [trial page](https://developer.chrome.com/origintrials/#/register_trial/4163014905550602241) for current platforms, versions, and expiry. A version number alone does not guarantee availability. The integration retains `navigator.modelContext` only for older previews.
 
-### Development: Chrome Flag
+### Development: Chrome flag
 
 1. Open `chrome://flags#enable-webmcp-testing`
 2. Enable the flag
 3. Restart Chrome
 
-### Production: Origin Trial
+### Production: origin trial
 
 For production sites (no flag required for visitors), register for a Chrome Origin Trial token:
 
@@ -216,22 +218,22 @@ In Astro, add this to your base layout (`src/layouts/Layout.astro` or similar):
 <meta http-equiv="origin-trial" content={import.meta.env.WEBMCP_ORIGIN_TRIAL_TOKEN}>
 ```
 
-> Store the token in `.env` as `WEBMCP_ORIGIN_TRIAL_TOKEN=your-token` — never hardcode in source.
+> You can manage the token in `.env` as `WEBMCP_ORIGIN_TRIAL_TOKEN=your-token`. The rendered token is public and origin-scoped, not a secret.
 
-Native support (no flag or token required) is targeted for H2 2026. Microsoft Edge is actively collaborating.
+The trial is experimental deployment, not a stable-release commitment. Check the live trial requirements before shipping.
 
 ---
 
 ## Security
 
-This integration follows [Chrome Agent Security Guidelines](https://developer.chrome.com/docs/ai/webmcp/secure-tools):
+Read Chrome's [tool security guidance](https://developer.chrome.com/docs/ai/webmcp/secure-tools) before exposing application actions.
 
-- **readOnlyHint** on all non-mutating tools
-- **untrustedContentHint** on tools returning page content
-- **requestUserInteraction()** for state-mutating tools (`go_to` prompts user consent before navigating)
-- **Output truncation** (default 1500 chars) prevents context overflow
-- **Prompt injection sanitization** strips common instruction patterns
-- **Cross-origin control** via `exposedTo` (default: same-origin only)
+- Annotations describe behavior; they are not authorization or consent controls. Validate inputs and permissions in application code, and implement site-owned confirmation for consequential actions.
+- `requestUserInteraction()` is not in the current ModelContext IDL. `go_to` uses it only if present for compatibility and otherwise navigates without that prompt.
+- Output truncation limits text size (default 1500 characters). The regexp sanitizer is a heuristic, not a prompt-injection security boundary.
+- Cross-origin access requires secure origins in the provider's `exposedTo` and the caller's `getTools({ fromOrigins: [...] })`. Cross-origin frames also need `allow="tools"`; exposure alone does not delegate registration permission.
+
+See the [usage guide](docs/usage.md#testing-locally) for automated tests, native-browser smoke checks, cancellation, and evaluation guidance.
 
 ---
 
@@ -239,20 +241,20 @@ This integration follows [Chrome Agent Security Guidelines](https://developer.ch
 
 This is a fork of the original [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles), maintained by [FreshJuice](https://freshjuice.dev) with:
 
-- **Fixed script injection** — uses `head-inline` stage for reliable delivery on Astro v6 and v7
-- **Custom tools API** — expose your own domain-specific functionality declaratively in `astro.config.mjs`
-- **Search backends** — Pagefind and Orama full-text search, with automatic fallback
-- **Declarative form scanning** — auto-register annotated `<form>` elements as tools
-- **Enhanced metadata** — tags, OpenGraph, canonical URL, language, word count in manifest
-- **English docs & comments** — fully in English throughout
+- Script injection through the `head-inline` stage on Astro v6 and v7
+- Custom tools configured in `astro.config.mjs`
+- Pagefind and Orama full-text search, with manifest fallback
+- Opt-in registration of annotated forms
+- Tags, OpenGraph, canonical URL, language, and word count in the manifest
+- English documentation and comments
 
 ---
 
-## Further Reading
+## Further reading
 
-- [Usage Guide](docs/usage.md) — detailed setup, testing, and troubleshooting
-- [Architecture](docs/architecture.md) — design decisions and component breakdown
-- [Changelog](CHANGELOG.md) — version history
+- [Usage guide](docs/usage.md): detailed setup, testing, and troubleshooting
+- [Architecture](docs/architecture.md): design decisions and component breakdown
+- [Changelog](CHANGELOG.md): version history
 
 ---
 
