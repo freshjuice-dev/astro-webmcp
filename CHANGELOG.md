@@ -2,6 +2,18 @@
 
 All notable changes to `@freshjuice/astro-webmcp` will be documented in this file.
 
+## [1.8.0] - 2026-11-06
+
+### Fixed
+- Include `collections` and `entries` arrays in the SSR middleware manifest so client validation does not reject SSR pages.
+- Normalize leading and trailing slashes in `go_to` slug lookups.
+- Strip labelable child elements from wrapping `<label>` descriptions and skip forms with empty `toolname` or `tooldescription` attributes.
+- Align `search_content` `limit` schema across the server card, client, and docs.
+
+### Changed
+- Update `outputSchema` documentation to match the November 2026 WebMCP IDL (`ModelContextTool` and `RegisteredTool`) and document Chrome DevTools' WebMCP panel.
+- Update Astro dev dependency to 7.4.7.
+
 ## [1.7.0] - 2026-11-01
 
 ### Added
