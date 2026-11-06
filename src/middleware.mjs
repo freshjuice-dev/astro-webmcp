@@ -1,7 +1,3 @@
-/**
- * WebMCP SSR middleware — serves dynamic manifest with route caching (v7).
- * This file is processed by Astro's Vite pipeline at runtime.
- */
 export const onRequest = async (context, next) => {
   const linkHeader = [
     '</_webmcp/manifest.json>; rel="webmcp"',
@@ -17,7 +13,6 @@ export const onRequest = async (context, next) => {
     return response;
   }
 
-  // v7 route caching (feature detection — noop on v6)
   if (context.cache && typeof context.cache.set === 'function') {
     context.cache.set({
       maxAge: 60,
@@ -31,6 +26,10 @@ export const onRequest = async (context, next) => {
     site: context.site?.toString(),
     dynamic: true,
     url: context.url.pathname,
+    collections: [],
+    entries: [
+      { slug: '/', url: '/', title: 'Home', description: 'Homepage' },
+    ],
   };
 
   return new Response(JSON.stringify(manifest), {

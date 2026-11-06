@@ -68,17 +68,13 @@ export interface SecurityOptions {
   sanitizeOutputs?: boolean;
 }
 
-/** User-defined custom tool */
 export interface CustomTool {
   name: string;
   title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /** Compatibility metadata; not part of the current WebMCP tool dictionary. */
   outputSchema?: Record<string, unknown>;
-  /** Serialized execute function body (runs in browser) */
   executeBody: string;
-  /** Security annotations */
   annotations?: ToolAnnotations;
 }
 

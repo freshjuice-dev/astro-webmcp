@@ -233,7 +233,7 @@ function buildServerCard(siteUrl: string | undefined, options: WebMCPOptions): M
         properties: {
           query: { type: 'string', description: 'Search term' },
           collection: { type: 'string', description: 'Filter by collection (optional)' },
-          limit: { type: 'number', description: 'Max results (default: 5)' },
+          limit: { type: 'integer', minimum: 1, maximum: 20, description: 'Max results (default: 5)' },
         },
         required: ['query'],
       },

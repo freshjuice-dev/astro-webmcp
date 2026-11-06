@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { build } from 'astro';
 import webmcp from '../dist/index.js';
+import { onRequest } from '../dist/middleware.mjs';
 
 function injectedScript(options = {}) {
   let script;
@@ -54,4 +55,7 @@ test('an Astro site builds with an executable client and generated discovery fil
   const card = JSON.parse(await readFile(new URL('dist/.well-known/mcp/server-card.json', root), 'utf8'));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(card.serverInfo.version, pkg.version);
+  const ssrRes = await onRequest({ url: new URL('https://example.com/_webmcp/manifest.json'), site: new URL('https://example.com') }, async () => new Response());
+  const ssrManifest = await ssrRes.json();
+  assert.ok(Array.isArray(ssrManifest.entries) && Array.isArray(ssrManifest.collections));
 });

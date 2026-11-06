@@ -155,7 +155,7 @@ test('navigation rejects off-site manifest URLs and checks cancellation before c
   const unsafe = await navigate.execute({ slug: 'unsafe' });
   assert.equal(typeof JSON.parse(unsafe.content[0].text).error, 'string');
   const execution = new AbortController();
-  const pending = navigate.execute({ slug: 'safe' }, { signal: execution.signal });
+  const pending = navigate.execute({ slug: '/safe' }, { signal: execution.signal });
   execution.abort();
   approve(true);
   await assert.rejects(pending, { name: 'AbortError' });
@@ -186,4 +186,38 @@ test('scanned forms use the same pre-execution cancellation guard', async () => 
   execution.abort();
   await assert.rejects(tools.get('form_tool').execute({}, { signal: execution.signal }), { name: 'AbortError' });
   assert.equal(submitted, false);
+});
+
+test('form scanner skips empty tool attributes and strips labelable children from wrapping labels', async () => {
+  const selectField = {
+    id: '',
+    tagName: 'SELECT',
+    getAttribute: key => ({ name: 'team' })[key] ?? null,
+    hasAttribute: () => false,
+    querySelectorAll: () => [{ value: 'support', textContent: 'Website support' }],
+    closest: () => ({
+      cloneNode: () => ({
+        querySelectorAll: () => [{ remove() {} }],
+        textContent: ' Routing team ',
+      }),
+    }),
+  };
+  const { tools, warnings } = await loadClient({ formScanning: true }, {
+    prepare(context) {
+      context.document.querySelectorAll = () => [
+        {
+          getAttribute: key => ({ toolname: ' ', tooldescription: 'Empty name' })[key] ?? null,
+          hasAttribute: () => true,
+          querySelectorAll: () => [],
+        },
+        {
+          getAttribute: key => ({ toolname: 'valid_form', tooldescription: 'Valid form' })[key] ?? null,
+          hasAttribute: key => key === 'toolname',
+          querySelectorAll: () => [selectField],
+        },
+      ];
+    },
+  });
+  assert.equal(warnings.length, 0);
+  assert.equal(tools.get('valid_form').inputSchema.properties.team.description, 'Routing team');
 });

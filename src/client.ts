@@ -182,20 +182,19 @@ async function searchContent(
 // =============================================================================
 
 function getLabelDesc(el: HTMLElement): string {
-  // Chrome: toolparamdescription → <label> content → aria-description
   const explicit = el.getAttribute('toolparamdescription');
   if (explicit) return explicit;
-  // Associated <label for="id">
   if (el.id) {
     const label = document.querySelector<HTMLLabelElement>(`label[for="${el.id}"]`);
     if (label?.textContent?.trim()) return label.textContent.trim();
   }
-  // Wrapping <label>
   const parent = el.closest('label');
-  if (parent?.textContent?.trim()) return parent.textContent.trim();
-  // aria-description (Chrome's third fallback)
+  if (parent) {
+    const clone = parent.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('button, input, meter, output, progress, select, textarea').forEach(n => n.remove());
+    if (clone.textContent?.trim()) return clone.textContent.trim();
+  }
   if (el.getAttribute('aria-description')) return el.getAttribute('aria-description')!;
-  // Extra fallbacks beyond Chrome's chain
   if (el.getAttribute('title')) return el.getAttribute('title')!;
   return el.getAttribute('name') || '';
 }
@@ -226,11 +225,12 @@ async function scanDeclarativeForms(mc: any): Promise<any[]> {
   const seen = new Set<string>();
   const tools: any[] = [];
   for (const form of forms) {
-    const name = (form.getAttribute('toolname') ?? form.getAttribute('name'))!;
+    const name = (form.getAttribute('toolname') ?? form.getAttribute('name') ?? '').trim();
+    const description = (form.getAttribute('tooldescription') ?? form.getAttribute('description') ?? '').trim();
+    if (!name || !description) continue;
     if (form.hasAttribute('toolname') && nativeNames.has(name)) continue;
     if (seen.has(name)) continue;
     seen.add(name);
-    const description = (form.getAttribute('tooldescription') ?? form.getAttribute('description'))!;
     const autoSubmit = form.hasAttribute('toolautosubmit');
 
     const properties: Record<string, unknown> = {};
@@ -241,8 +241,8 @@ async function scanDeclarativeForms(mc: any): Promise<any[]> {
       const desc = getLabelDesc(field);
       const isRequired = field.hasAttribute('required');
 
-      if (field instanceof HTMLSelectElement) {
-        properties[fieldName] = selectToSchema(field, desc);
+      if (field.tagName === 'SELECT') {
+        properties[fieldName] = selectToSchema(field as HTMLSelectElement, desc);
       } else {
         let schemaType = 'string';
         const type = field.getAttribute('type') || 'text';
@@ -267,8 +267,8 @@ async function scanDeclarativeForms(mc: any): Promise<any[]> {
           for (const [key, value] of Object.entries(params)) {
             const field = form.querySelector(`[name="${key}"]`) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
             if (field) {
-              if (field instanceof HTMLInputElement && field.type === 'checkbox') {
-                field.checked = Boolean(value);
+              if ((field as HTMLInputElement).type === 'checkbox') {
+                (field as HTMLInputElement).checked = Boolean(value);
               } else {
                 field.value = String(value);
               }
@@ -386,8 +386,9 @@ async function initWebMCP(): Promise<void> {
       if (typeof args?.slug !== 'string' || !args.slug.trim()) {
         return safeOutput({ error: 'slug must be a non-empty string.' });
       }
+      const clean = args.slug.trim().replace(/^\/+|\/+$/g, '');
       const entry = manifest.entries.find(
-        (e) => e.slug === args.slug || e.url === args.slug || e.url === `/${args.slug}/`,
+        (e) => e.slug === args.slug || e.url === args.slug || e.slug.replace(/^\/+|\/+$/g, '') === clean,
       );
       if (!entry) {
         return safeOutput({ error: 'Page not found. Use search_content to find available pages.' });
