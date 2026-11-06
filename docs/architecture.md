@@ -157,7 +157,7 @@ astro.config.mjs                    Build time
 
 Each custom tool's `executeBody` is dynamically compiled as an async function body with `params`, `safeOutput`, and `signal`. It supports `await` and runs as public browser code, without access to config closures. The native callback is `execute(params, { signal })`; the body receives that per-execution signal, not the registration controller's signal. Pass it to cancellable work such as `fetch()`.
 
-Custom tools support an optional `title` and the `readOnlyHint`, `untrustedContentHint`, `consequentialHint`, and `debugging` annotations. `readOnlyHint` defaults to `false`, so read-only tools must opt in explicitly. Chrome documents `debugging` from version 156. `outputSchema` is compatibility metadata, not a member of the current WebMCP IDL.
+Custom tools support an optional `title`, `outputSchema`, and the `readOnlyHint`, `untrustedContentHint`, `consequentialHint`, and `debugging` annotations. `readOnlyHint` defaults to `false`, so read-only tools must opt in explicitly. Chrome documents `debugging` from version 156. If `outputSchema` is provided, it must match the tool's returned structure.
 
 `safeOutput()` produces the package's MCP-style text-content envelope after heuristic filtering and truncation. WebMCP accepts JSON-serializable results without requiring that envelope. Truncation can make the inner text invalid JSON. Dynamic compilation must be compatible with the site's Content Security Policy; tool bodies must be trusted code and contain no secrets.
 

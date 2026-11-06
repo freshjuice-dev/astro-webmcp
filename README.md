@@ -108,7 +108,7 @@ The `customTools` array lets you expose your own site-specific functionality. Ea
 - `title`: optional human-readable display title.
 - `annotations`: optional `readOnlyHint`, `untrustedContentHint`, `consequentialHint`, and `debugging` hints. `readOnlyHint` defaults to `false`; declare `true` only for non-mutating tools. Chrome documents `debugging` from version 156.
 
-`safeOutput()` returns the package's MCP-style `{ content: [{ type: 'text', text: '...' }] }` envelope. WebMCP permits JSON-serializable results and does not require this envelope. `outputSchema`, if supplied, is compatibility metadata, not a field supported by the current WebMCP IDL. Tool code is public browser code: keep secrets and authorization checks on the server.
+`safeOutput()` returns the package's MCP-style `{ content: [{ type: 'text', text: '...' }] }` envelope. WebMCP permits JSON-serializable results and does not require this envelope. If you set `outputSchema`, match the actual returned structure (either the `safeOutput()` envelope or your raw object). Tool code is public browser code: keep secrets and authorization checks on the server.
 
 ### Search backends
 
@@ -239,7 +239,7 @@ See the [usage guide](docs/usage.md#testing-locally) for automated tests, native
 
 ## Why FreshJuice?
 
-This is a fork of the original [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles), maintained by [FreshJuice](https://freshjuice.dev) with:
+This is a fork of the original [`astro-webmcp`](https://github.com/fabricioctelles/astro-webmcp) by [fabricioctelles](https://github.com/fabricioctelles), maintained by [Alex Zappa](https://alex.zappa.dev/) at [FreshJuice](https://freshjuice.dev) with:
 
 - Script injection through the `head-inline` stage on Astro v6 and v7
 - Custom tools configured in `astro.config.mjs`

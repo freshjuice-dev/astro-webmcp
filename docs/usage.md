@@ -88,7 +88,7 @@ Each custom tool requires:
 
 The native callback is `execute(params, { signal })`; the package exposes that per-call signal as the `signal` variable in `executeBody`. It is separate from the registration-lifetime signal. Aborting registration unregisters a tool, not its in-flight executions in the current API.
 
-`safeOutput(data)` serializes, filters, and truncates data in the package's `{ content: [{ type: 'text', text: '...' }] }` envelope. That is a package convention, not a required WebMCP response format. Truncated text might not be valid JSON. `outputSchema` is compatibility metadata and is not supported by the current WebMCP IDL.
+`safeOutput(data)` serializes, filters, and truncates data in the package's `{ content: [{ type: 'text', text: '...' }] }` envelope. That is a package convention, not a required WebMCP response format. Truncated text might not be valid JSON. If you set `outputSchema`, match the actual returned value (either the `safeOutput()` envelope or your raw object), as agents and Chrome DevTools validate outputs against `outputSchema`.
 
 Treat `executeBody` as trusted application code, never user input. It is serialized to the browser, cannot close over your config's variables, and must not contain secrets. Dynamic compilation also needs a compatible Content Security Policy; test your site's policy rather than weakening it without review.
 
@@ -230,7 +230,7 @@ Search site content by keyword. Uses the configured backend (manifest, Pagefind,
     "properties": {
       "query": { "type": "string", "description": "Search term" },
       "collection": { "type": "string", "description": "Filter by collection (optional)" },
-      "limit": { "type": "number", "description": "Max results (default: 5)" }
+      "limit": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Max results to return (default: 5)" }
     },
     "required": ["query"]
   }
@@ -304,7 +304,9 @@ Use HTTPS or localhost. Navigate to `chrome://flags#enable-webmcp-testing`, enab
 
 ### 3. Verify tools in DevTools
 
-Open DevTools → Console:
+Open Chrome DevTools → **Application** → **WebMCP** to inspect **Available Tools**, view **Invoked Tools** history, check schema violations, or run tools manually ([DevTools guide](https://developer.chrome.com/docs/devtools/application/webmcp)). For MCP-based agent automation, pass `--categoryExperimentalWebmcp` to `chrome-devtools-mcp`.
+
+You can also inspect tools in the Console:
 
 ```js
 const mc = document.modelContext;
